@@ -1,4 +1,4 @@
-export const MOVE_SPEED = 250; // px/秒（前進）
+ｓexport const MOVE_SPEED = 250; // px/秒（前進）
 export const BACKWARD_MOVE_SPEED = 150; // px/秒（後ろ下がり）
 export const FORWARD_JUMP_SPEED = 500; // px/秒（前ジャンプの水平速度）
 export const BACKWARD_JUMP_SPEED = 300; // px/秒（後ろジャンプの水平速度）
@@ -9,11 +9,12 @@ export const JUMP_VELOCITY = 1300; // px/秒（上向き初速）
 const HIT_FLASH_DURATION = 0.15; // 秒
 const GUARD_FLASH_DURATION = 0.15; // 秒
 export const MAX_HP = 10000;
+export const MAX_SUPER_GAUGE = 100;
 const STAND_HEIGHT = 220;
 const CROUCH_HEIGHT = 150; // しゃがみ時の高さ（見た目・判定用。値は仮）
 
 export class Player {
-  constructor({ x, groundY, color, facing }) {
+  constructor({ x, groundY, color, facing, sprite = null, crouchSprite = null }) {
     this.width = 100;
     this.height = STAND_HEIGHT;
     this.x = x;
@@ -21,6 +22,8 @@ export class Player {
     this.y = groundY - this.height;
     this.color = color;
     this.facing = facing; // 1: 右向き, -1: 左向き
+    this.sprite = sprite; // 立ち絵画像（右向き基準）。無ければ図形描画にフォールバックする
+    this.crouchSprite = crouchSprite; // しゃがみ絵（右向き基準）。無ければ立ち絵を使う
     this.vx = 0;
     this.vy = 0;
     this.jumpVx = 0; // 踏み切った瞬間に固定される空中の横移動速度
@@ -34,6 +37,8 @@ export class Player {
     this.blockstunTimer = 0; // ガード硬直。この間は一切の行動ができない（ガード自体は継続できる）
     this.maxHp = MAX_HP;
     this.hp = MAX_HP;
+    this.maxSuperGauge = MAX_SUPER_GAUGE;
+    this.superGauge = 0; // ダメージのやり取りで溜まり、満タン時のみSAが出せる
   }
 
   get isStunned() {
@@ -42,6 +47,18 @@ export class Player {
 
   takeDamage(amount) {
     this.hp = Math.max(0, this.hp - amount);
+  }
+
+  gainSuperGauge(amount) {
+    this.superGauge = Math.min(this.maxSuperGauge, this.superGauge + amount);
+  }
+
+  hasFullSuperGauge() {
+    return this.superGauge >= this.maxSuperGauge;
+  }
+
+  consumeSuperGauge() {
+    this.superGauge = 0;
   }
 
   // ヒットを食らった側に適用。自分の攻撃も中断される（カウンターヒットで動きが止まる）
@@ -162,7 +179,34 @@ export class Player {
     }
   }
 
+  // 状態に応じたオーバーレイ色（画像にも図形にも共通で使う）
+  getStateTint() {
+    if (this.hitFlashTimer > 0) return { color: "#ffffff", alpha: 0.85 };
+    if (this.guardFlashTimer > 0) return { color: "#66ccff", alpha: 0.6 };
+    if (this.hitstunTimer > 0) return { color: "#994444", alpha: 0.45 }; // ヒット硬直中（反撃のチャンス）
+    if (this.isGuarding) return { color: "#000000", alpha: 0.3 }; // ガード構え中は少し暗く
+    return null;
+  }
+
+  // しゃがみ中はしゃがみ絵を優先し、無ければ立ち絵にフォールバックする
+  getCurrentSprite() {
+    if (this.isCrouching && this.crouchSprite) return this.crouchSprite;
+    return this.sprite;
+  }
+
   draw(ctx) {
+    const sprite = this.getCurrentSprite();
+    if (sprite) this.drawSprite(ctx, sprite);
+    else this.drawRect(ctx);
+
+    const hitbox = this.getHitbox();
+    if (hitbox) {
+      ctx.fillStyle = "rgba(255, 230, 0, 0.6)";
+      ctx.fillRect(hitbox.x, hitbox.y, hitbox.width, hitbox.height);
+    }
+  }
+
+  drawRect(ctx) {
     if (this.hitFlashTimer > 0) ctx.fillStyle = "#ffffff";
     else if (this.guardFlashTimer > 0) ctx.fillStyle = "#66ccff";
     else if (this.hitstunTimer > 0) ctx.fillStyle = "#994444"; // ヒット硬直中（反撃のチャンス）
@@ -175,11 +219,29 @@ export class Player {
     const stripeX = this.facing === 1 ? this.x + this.width - stripeWidth : this.x;
     ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
     ctx.fillRect(stripeX, this.y, stripeWidth, this.height);
+  }
 
-    const hitbox = this.getHitbox();
-    if (hitbox) {
-      ctx.fillStyle = "rgba(255, 230, 0, 0.6)";
-      ctx.fillRect(hitbox.x, hitbox.y, hitbox.width, hitbox.height);
+  // 画像を足元基準・アスペクト比維持で描画する（ハートボックスとは別サイズになりうる）
+  drawSprite(ctx, img) {
+    const displayHeight = this.height;
+    const displayWidth = displayHeight * (img.naturalWidth / img.naturalHeight);
+    const centerX = this.x + this.width / 2;
+    const feetY = this.y + this.height;
+
+    ctx.save();
+    ctx.translate(centerX, feetY);
+    if (this.facing === -1) ctx.scale(-1, 1); // 画像は右向き基準。左向きなら反転する
+    ctx.drawImage(img, -displayWidth / 2, -displayHeight, displayWidth, displayHeight);
+
+    const tint = this.getStateTint();
+    if (tint) {
+      ctx.globalCompositeOperation = "source-atop"; // 画像の不透明部分にのみ色を重ねる
+      ctx.globalAlpha = tint.alpha;
+      ctx.fillStyle = tint.color;
+      ctx.fillRect(-displayWidth / 2, -displayHeight, displayWidth, displayHeight);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
     }
+    ctx.restore();
   }
 }

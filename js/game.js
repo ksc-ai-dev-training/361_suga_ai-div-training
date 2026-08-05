@@ -1,8 +1,8 @@
 import { Player, MOVE_SPEED, BACKWARD_MOVE_SPEED, PUSH_SPEED } from "./player.js";
 import { GROUND_Y, drawStage } from "./stage.js";
 import { isKeyDown, isKeyJustPressed } from "./input.js";
-import { PUNCH_DATA, KICK_DATA, CROUCH_PUNCH_DATA, CROUCH_KICK_DATA, SPECIAL_DATA, GUARD_CHIP_RATIO, rectsOverlap } from "./combat.js";
-import { drawHealthBars, drawMatchResult, drawHelpOverlay } from "./ui.js";
+import { PUNCH_DATA, KICK_DATA, CROUCH_PUNCH_DATA, CROUCH_KICK_DATA, SPECIAL_DATA, GUARD_CHIP_RATIO, SUPER_GAUGE_GAIN_RATE, rectsOverlap } from "./combat.js";
+import { drawHud, drawMatchResult, drawHelpOverlay } from "./ui.js";
 import { Projectile } from "./projectile.js";
 import { CpuController } from "./ai.js";
 import {
@@ -18,25 +18,29 @@ import {
 } from "./commandInput.js";
 
 const MOTION_GRACE = 0.25; // 秒。↘入力からこの時間は歩行を抑制する
+const ROUND_TIME = 99; // 秒。ラウンドの持ち時間（タイムアップ時はHPが多い方の勝ち）
 
 export class Game {
-  constructor(ctx, canvasWidth, canvasHeight) {
+  constructor(ctx, canvasWidth, canvasHeight, assets = {}) {
     this.ctx = ctx;
     this.width = canvasWidth;
     this.height = canvasHeight;
+    this.assets = assets; // { background, player1, player2 }（画像。無ければnull）
 
     this.createPlayers();
     this.matchOver = false;
     this.winner = null;
+    this.endReason = null; // "ko" | "timeup"
     this.projectiles = [];
     this.commandBuffer1 = createCommandBuffer();
     this.elapsed = 0;
+    this.timeRemaining = ROUND_TIME;
     this.showHelp = false;
   }
 
   createPlayers() {
-    this.player1 = new Player({ x: 250, groundY: GROUND_Y, color: "#3366ff", facing: 1 });
-    this.player2 = new Player({ x: 850, groundY: GROUND_Y, color: "#ff3333", facing: -1 });
+    this.player1 = new Player({ x: 250, groundY: GROUND_Y, color: "#3366ff", facing: 1, sprite: this.assets.player1, crouchSprite: this.assets.player1Crouch });
+    this.player2 = new Player({ x: 850, groundY: GROUND_Y, color: "#ff3333", facing: -1, sprite: this.assets.player2, crouchSprite: this.assets.player2Crouch });
     this.cpu = new CpuController(this.player2, this.player1, {
       hasOwnProjectile: () => this.hasActiveProjectile(this.player2),
       canvasWidth: this.width,
@@ -47,8 +51,10 @@ export class Game {
     this.createPlayers();
     this.matchOver = false;
     this.winner = null;
+    this.endReason = null;
     this.projectiles = [];
     clearBuffer(this.commandBuffer1);
+    this.timeRemaining = ROUND_TIME;
   }
 
   update(dt) {
@@ -61,6 +67,7 @@ export class Game {
     }
 
     this.elapsed += dt;
+    this.timeRemaining = Math.max(0, this.timeRemaining - dt);
 
     this.handleInput();
     this.handleJumpInput();
@@ -157,7 +164,7 @@ export class Game {
       if (projectile.dead) continue;
       const target = projectile.owner === this.player1 ? this.player2 : this.player1;
       if (rectsOverlap(projectile.getHitbox(), target.getHurtbox())) {
-        this.applyHit(target, projectile);
+        this.applyHit(projectile.owner, target, projectile);
         projectile.dead = true;
       }
     }
@@ -165,8 +172,9 @@ export class Game {
   }
 
   // ガード中なら削りダメージ＋ガード硬直、そうでなければ通常ダメージ＋ヒット硬直を与える。
+  // 攻撃側・防御側ともにダメージに応じてSUPERゲージが溜まる。
   // attackData は { damage, hitstun, blockstun } を持つオブジェクト（技データ or Projectile）
-  applyHit(defender, attackData) {
+  applyHit(attacker, defender, attackData) {
     if (defender.isGuarding) {
       defender.triggerGuardFlash();
       defender.takeDamage(Math.round(attackData.damage * GUARD_CHIP_RATIO));
@@ -176,16 +184,26 @@ export class Game {
       defender.takeDamage(attackData.damage);
       defender.applyHitstun(attackData.hitstun);
     }
+
+    const gaugeGain = attackData.damage * SUPER_GAUGE_GAIN_RATE;
+    attacker.gainSuperGauge(gaugeGain);
+    defender.gainSuperGauge(gaugeGain);
   }
 
   checkMatchEnd() {
     const p1Down = this.player1.hp <= 0;
     const p2Down = this.player2.hp <= 0;
-    if (!p1Down && !p2Down) return;
+    const timeUp = this.timeRemaining <= 0;
+    if (!p1Down && !p2Down && !timeUp) return;
 
     this.matchOver = true;
+    this.endReason = p1Down || p2Down ? "ko" : "timeup";
+
     if (p1Down && p2Down) this.winner = null; // 相打ち
-    else this.winner = p1Down ? this.player2 : this.player1;
+    else if (p1Down) this.winner = this.player2;
+    else if (p2Down) this.winner = this.player1;
+    else if (this.player1.hp === this.player2.hp) this.winner = null; // タイムアップかつ体力同値
+    else this.winner = this.player1.hp > this.player2.hp ? this.player1 : this.player2; // タイムアップはHPが多い方の勝ち
   }
 
   resolveCollision(dt) {
@@ -270,15 +288,17 @@ export class Game {
 
   // パンチ入力の直前に波動拳／スーパーアーツのコマンドが成立していればそちらを、
   // そうでなければ通常のパンチを出す。どちらも地上限定・同時に自分の弾は1発まで。
-  // スーパーアーツ（↓↘→↓↘→）は波動拳（↓↘→）の上位互換の入力なので先にチェックする
+  // スーパーアーツ（↓↘→↓↘→）は波動拳（↓↘→）の上位互換の入力なので先にチェックする。
+  // SAはSUPERゲージが満タンでないと出せず、コマンドが成立していても波動拳になる
   tryPunchOrSpecial(strength, punchData) {
     const p1 = this.player1;
     if (p1.attack) return;
 
     const canFireProjectile = p1.isGrounded && !p1.isCrouching && !this.hasActiveProjectile(p1);
 
-    if (canFireProjectile && hasDoubleQuarterCircleForward(this.commandBuffer1, this.elapsed)) {
+    if (canFireProjectile && p1.hasFullSuperGauge() && hasDoubleQuarterCircleForward(this.commandBuffer1, this.elapsed)) {
       clearBuffer(this.commandBuffer1); // 連続で誤爆しないようコマンドを消費する
+      p1.consumeSuperGauge();
       p1.startAttack("special", "hadoukenSuper", SPECIAL_DATA.hadoukenSuper);
       return;
     }
@@ -311,7 +331,7 @@ export class Game {
 
     if (rectsOverlap(hitbox, defender.getHurtbox())) {
       attacker.attack.hasHit = true;
-      this.applyHit(defender, attacker.attack.data);
+      this.applyHit(attacker, defender, attacker.attack.data);
     }
   }
 
@@ -326,15 +346,16 @@ export class Game {
   render() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);
-    drawStage(ctx, this.width);
+    drawStage(ctx, this.width, this.height, this.assets.background);
     this.player1.draw(ctx);
     this.player2.draw(ctx);
     for (const projectile of this.projectiles) projectile.draw(ctx);
-    drawHealthBars(ctx, this.player1, this.player2, this.width);
+    drawHud(ctx, this.player1, this.player2, this.width, this.height, this.timeRemaining);
 
     if (this.matchOver) {
       const winnerLabel = this.winner === this.player1 ? "YOU WIN" : this.winner === this.player2 ? "CPU WINS" : "DRAW";
-      drawMatchResult(ctx, this.width, this.height, winnerLabel);
+      const headerLabel = this.endReason === "timeup" ? "TIME UP" : "K.O.";
+      drawMatchResult(ctx, this.width, this.height, winnerLabel, headerLabel);
     }
 
     if (this.showHelp) drawHelpOverlay(ctx, this.width, this.height);

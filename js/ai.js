@@ -267,7 +267,8 @@ export class CpuController {
         break;
       case "fireball": {
         p.vx = 0;
-        const useSuper = Math.random() < SUPER_CHANCE;
+        const useSuper = p.hasFullSuperGauge() && Math.random() < SUPER_CHANCE;
+        if (useSuper) p.consumeSuperGauge();
         p.startAttack("special", useSuper ? "hadoukenSuper" : "hadouken", useSuper ? SPECIAL_DATA.hadoukenSuper : SPECIAL_DATA.hadouken);
         break;
       }

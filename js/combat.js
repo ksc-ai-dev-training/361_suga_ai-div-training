@@ -5,6 +5,9 @@ const framesToSeconds = (frames) => frames / FPS;
 // ガード成功時のダメージ倍率（削りダメージ）。高中低の区別はなく、ガード中は常にこの割合を受ける
 export const GUARD_CHIP_RATIO = 0.1;
 
+// SUPERゲージの増加量 = ダメージ量 × この係数。攻撃側・防御側の両方に加算される（仮値）
+export const SUPER_GAUGE_GAIN_RATE = 0.03;
+
 // 技データ（startup=発生, active=持続フレーム数, recovery=硬直, damage=与えるダメージ量,
 //           hitstun=ヒット時に相手が動けなくなるフレーム数, blockstun=ガード時に相手が動けなくなるフレーム数）
 // 発生・持続・硬直・ダメージ・硬直差は参考にしたフレームデータ表の「立ち技」の値と一致させている。

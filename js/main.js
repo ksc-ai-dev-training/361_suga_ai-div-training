@@ -1,5 +1,6 @@
 import { Game } from "./game.js";
 import { updateInputFrame } from "./input.js";
+import { loadAssets } from "./assets.js";
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -13,19 +14,21 @@ function resizeCanvas() {
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-const game = new Game(ctx, canvas.width, canvas.height);
+// 画像が無くても loadAssets は null で解決するため、ここで待っても起動が止まることはない
+loadAssets().then((assets) => {
+  const game = new Game(ctx, canvas.width, canvas.height, assets);
+  let lastTime = performance.now();
 
-let lastTime = performance.now();
+  function loop(now) {
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
 
-function loop(now) {
-  const dt = (now - lastTime) / 1000;
-  lastTime = now;
+    game.update(dt);
+    game.render();
+    updateInputFrame();
 
-  game.update(dt);
-  game.render();
-  updateInputFrame();
+    requestAnimationFrame(loop);
+  }
 
   requestAnimationFrame(loop);
-}
-
-requestAnimationFrame(loop);
+});
