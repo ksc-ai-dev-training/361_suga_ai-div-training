@@ -38,3 +38,36 @@ export function drawMatchResult(ctx, canvasWidth, canvasHeight, winnerLabel) {
   ctx.fillText(winnerLabel, canvasWidth / 2, canvasHeight / 2 + 30);
   ctx.fillText("Rキーでリスタート", canvasWidth / 2, canvasHeight / 2 + 70);
 }
+
+const HELP_LINES = [
+  "移動: A / D",
+  "ジャンプ: W（A/Dと同時押しで前・後ジャンプ）",
+  "しゃがみ: S",
+  "ガード: 後ろ方向（向いている方向と逆のA/D）",
+  "弱 / 中 / 強パンチ: U / I / O",
+  "弱 / 中 / 強キック: J / K / L",
+  "波動拳: ↓ → ↘ → → の後にパンチ",
+  "スーパーアーツ: 波動拳コマンドを2回連続の後にパンチ",
+  "リスタート（決着後のみ）: R",
+];
+
+export function drawHelpOverlay(ctx, canvasWidth, canvasHeight) {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+
+  ctx.font = "bold 36px sans-serif";
+  ctx.fillText("操作説明", canvasWidth / 2, 90);
+
+  ctx.font = "20px sans-serif";
+  const lineHeight = 34;
+  const startY = 150;
+  HELP_LINES.forEach((line, i) => {
+    ctx.fillText(line, canvasWidth / 2, startY + i * lineHeight);
+  });
+
+  ctx.font = "18px sans-serif";
+  ctx.fillText("ESCキーで閉じる", canvasWidth / 2, startY + HELP_LINES.length * lineHeight + 30);
+}
