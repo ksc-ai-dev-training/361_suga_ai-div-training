@@ -7,6 +7,7 @@ export const GRAVITY = 2800; // px/秒^2（上昇中）
 export const FALL_GRAVITY = 3600; // px/秒^2（下降中、上昇より速く落ちる）
 export const JUMP_VELOCITY = 1300; // px/秒（上向き初速）
 const HIT_FLASH_DURATION = 0.15; // 秒
+export const MAX_HP = 100;
 
 export class Player {
   constructor({ x, groundY, color, facing }) {
@@ -23,6 +24,12 @@ export class Player {
     this.isGrounded = true;
     this.attack = null; // { type, strength, data, phase, timer, hasHit }
     this.hitFlashTimer = 0;
+    this.maxHp = MAX_HP;
+    this.hp = MAX_HP;
+  }
+
+  takeDamage(amount) {
+    this.hp = Math.max(0, this.hp - amount);
   }
 
   // direction: -1(左) / 0(入力なし) / 1(右) … 踏み切った瞬間の入力方向

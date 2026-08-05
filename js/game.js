@@ -2,6 +2,7 @@ import { Player, MOVE_SPEED, BACKWARD_MOVE_SPEED, PUSH_SPEED } from "./player.js
 import { GROUND_Y, drawStage } from "./stage.js";
 import { isKeyDown, isKeyJustPressed } from "./input.js";
 import { PUNCH_DATA, rectsOverlap } from "./combat.js";
+import { drawHealthBars, drawMatchResult } from "./ui.js";
 
 export class Game {
   constructor(ctx, canvasWidth, canvasHeight) {
@@ -9,11 +10,28 @@ export class Game {
     this.width = canvasWidth;
     this.height = canvasHeight;
 
+    this.createPlayers();
+    this.matchOver = false;
+    this.winner = null;
+  }
+
+  createPlayers() {
     this.player1 = new Player({ x: 250, groundY: GROUND_Y, color: "#3366ff", facing: 1 });
     this.player2 = new Player({ x: 850, groundY: GROUND_Y, color: "#ff3333", facing: -1 });
   }
 
+  restart() {
+    this.createPlayers();
+    this.matchOver = false;
+    this.winner = null;
+  }
+
   update(dt) {
+    if (this.matchOver) {
+      if (isKeyJustPressed("KeyR")) this.restart();
+      return;
+    }
+
     this.handleInput();
     this.handleJumpInput();
     this.handlePunchInput();
@@ -24,6 +42,18 @@ export class Game {
     this.resolveCollision(dt);
     this.updateFacing();
     this.checkAttackHit(this.player1, this.player2);
+    this.checkAttackHit(this.player2, this.player1);
+    this.checkMatchEnd();
+  }
+
+  checkMatchEnd() {
+    const p1Down = this.player1.hp <= 0;
+    const p2Down = this.player2.hp <= 0;
+    if (!p1Down && !p2Down) return;
+
+    this.matchOver = true;
+    if (p1Down && p2Down) this.winner = null; // 相打ち
+    else this.winner = p1Down ? this.player2 : this.player1;
   }
 
   resolveCollision(dt) {
@@ -94,7 +124,7 @@ export class Game {
     if (rectsOverlap(hitbox, defender.getHurtbox())) {
       attacker.attack.hasHit = true;
       defender.triggerHitFlash();
-      console.log(`Hit! ${attacker.attack.type} (${attacker.attack.strength})`);
+      defender.takeDamage(attacker.attack.data.damage);
     }
   }
 
@@ -112,5 +142,11 @@ export class Game {
     drawStage(ctx, this.width);
     this.player1.draw(ctx);
     this.player2.draw(ctx);
+    drawHealthBars(ctx, this.player1, this.player2, this.width);
+
+    if (this.matchOver) {
+      const winnerLabel = this.winner === this.player1 ? "YOU WIN" : this.winner === this.player2 ? "CPU WINS" : "DRAW";
+      drawMatchResult(ctx, this.width, this.height, winnerLabel);
+    }
   }
 }
