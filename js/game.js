@@ -1,4 +1,4 @@
-import { Player, MOVE_SPEED, BACKWARD_MOVE_SPEED, PUSH_SPEED, AIR_SPEED_MULTIPLIER } from "./player.js";
+import { Player, MOVE_SPEED, BACKWARD_MOVE_SPEED, PUSH_SPEED } from "./player.js";
 import { GROUND_Y, drawStage } from "./stage.js";
 import { isKeyDown, isKeyJustPressed } from "./input.js";
 import { PUNCH_DATA, rectsOverlap } from "./combat.js";
@@ -30,8 +30,8 @@ export class Game {
     const p1 = this.player1;
     const p2 = this.player2;
 
-    const verticallyOverlapping = p1.y < p2.y + p2.height && p1.y + p1.height > p2.y;
-    if (!verticallyOverlapping) return; // ジャンプで相手の上を越えている場合は押し合わない
+    // どちらかが空中にいる間は押し合わない（ジャンプの軌道を一定に保つ）
+    if (!p1.isGrounded || !p2.isGrounded) return;
 
     const center1 = p1.x + p1.width / 2;
     const center2 = p2.x + p2.width / 2;
@@ -67,13 +67,16 @@ export class Game {
     }
 
     const isBackward = direction !== p1.facing;
-    let speed = isBackward ? BACKWARD_MOVE_SPEED : MOVE_SPEED;
-    if (!p1.isGrounded) speed *= AIR_SPEED_MULTIPLIER;
-    p1.vx = direction * speed;
+    p1.vx = direction * (isBackward ? BACKWARD_MOVE_SPEED : MOVE_SPEED);
   }
 
   handleJumpInput() {
-    if (isKeyDown("KeyW")) this.player1.jump();
+    if (!isKeyJustPressed("KeyW")) return;
+
+    let direction = 0;
+    if (isKeyDown("KeyA")) direction -= 1;
+    if (isKeyDown("KeyD")) direction += 1;
+    this.player1.jump(direction);
   }
 
   handlePunchInput() {
@@ -98,8 +101,9 @@ export class Game {
   updateFacing() {
     const center1 = this.player1.x + this.player1.width / 2;
     const center2 = this.player2.x + this.player2.width / 2;
-    this.player1.facing = center1 <= center2 ? 1 : -1;
-    this.player2.facing = center2 <= center1 ? 1 : -1;
+    // 空中では向きを固定する（着地している側だけ相手の方を向く）
+    if (this.player1.isGrounded) this.player1.facing = center1 <= center2 ? 1 : -1;
+    if (this.player2.isGrounded) this.player2.facing = center2 <= center1 ? 1 : -1;
   }
 
   render() {

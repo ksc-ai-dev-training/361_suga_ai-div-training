@@ -1,6 +1,7 @@
 export const MOVE_SPEED = 250; // px/秒（前進）
 export const BACKWARD_MOVE_SPEED = 150; // px/秒（後ろ下がり）
-export const AIR_SPEED_MULTIPLIER = 2; // 空中移動は地上より速くしてジャンプの距離を伸ばす
+export const FORWARD_JUMP_SPEED = 500; // px/秒（前ジャンプの水平速度）
+export const BACKWARD_JUMP_SPEED = 300; // px/秒（後ろジャンプの水平速度）
 export const PUSH_SPEED = 100; // px/秒（相手を押すときの速度）
 export const GRAVITY = 2800; // px/秒^2（上昇中）
 export const FALL_GRAVITY = 3600; // px/秒^2（下降中、上昇より速く落ちる）
@@ -18,15 +19,25 @@ export class Player {
     this.facing = facing; // 1: 右向き, -1: 左向き
     this.vx = 0;
     this.vy = 0;
+    this.jumpVx = 0; // 踏み切った瞬間に固定される空中の横移動速度
     this.isGrounded = true;
     this.attack = null; // { type, strength, data, phase, timer, hasHit }
     this.hitFlashTimer = 0;
   }
 
-  jump() {
+  // direction: -1(左) / 0(入力なし) / 1(右) … 踏み切った瞬間の入力方向
+  jump(direction) {
     if (!this.isGrounded || this.attack) return;
     this.vy = -JUMP_VELOCITY;
     this.isGrounded = false;
+
+    if (direction === 0) {
+      this.jumpVx = 0; // 垂直ジャンプ
+    } else if (direction === this.facing) {
+      this.jumpVx = direction * FORWARD_JUMP_SPEED; // 前ジャンプ
+    } else {
+      this.jumpVx = direction * BACKWARD_JUMP_SPEED; // 後ろジャンプ
+    }
   }
 
   startAttack(type, strength, data) {
@@ -71,7 +82,8 @@ export class Player {
     const isAttacking = !!this.attack;
 
     if (!isAttacking) {
-      this.x += this.vx * dt;
+      const moveVx = this.isGrounded ? this.vx : this.jumpVx;
+      this.x += moveVx * dt;
       this.x = Math.max(0, Math.min(canvasWidth - this.width, this.x));
     }
 
