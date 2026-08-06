@@ -151,7 +151,9 @@ export class Game {
     const cfg = a.data.projectile;
     const x = player.facing === 1 ? player.x + player.width : player.x - cfg.width;
     const y = player.y + cfg.offsetY;
-    this.projectiles.push(new Projectile({ x, y, direction: player.facing, owner: player, config: cfg }));
+    // 波動拳(通常技)のみ専用の弾絵を使う。SA(hadoukenSuper)は今のところ専用絵が無いため図形描画のまま
+    const sprites = a.strength === "hadouken" ? this.assets.hadoukenSprites : null;
+    this.projectiles.push(new Projectile({ x, y, direction: player.facing, owner: player, config: cfg, sprites }));
   }
 
   // 持ち主が異なる弾同士が重なったら、威力(damage)が高い方が生き残り、低い方だけ消える。

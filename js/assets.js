@@ -20,6 +20,7 @@ const ATTACK_STRENGTHS_BY_TYPE = {
 const ATTACK_PHASES = ["startup", "active"]; // recoveryは専用画像を用意せず、activeの最終コマを流用する
 const MAX_JUMP_PHASE_FRAMES = 4; // ジャンプの各フェーズ(anticipation/rise/apex/fall)で最大何コマまで試すか
 const JUMP_PHASES = ["anticipation", "rise", "apex", "fall"];
+const MAX_HADOUKEN_FRAMES = 4; // hadouken1.png 〜 hadouken4.png まで試す（弾自体のアニメコマ。プレイヤー非依存の共通アセット）
 
 // assets/{baseName}1.png, {baseName}2.png, ... を連番で読み込み、存在するものだけを順番に配列で返す
 async function loadNumberedFrames(baseName, maxCount) {
@@ -95,6 +96,8 @@ async function loadJumpSprites(prefix) {
 //   strength=light/medium/heavy または hadouken/hadoukenSuper, phase=startup/active, N=1,2,3...連番）。
 //   無ければ立ち絵のまま攻撃する
 // - assets/player2.png / player2_crouch.png / player2_walkN.png / player2_{...}.png : P2側も同様
+// - assets/hadoukenN.png（N=1,2,3...連番） : 波動拳の弾本体の見た目（P1/P2共通、右向き基準）。
+//   複数コマ用意すると一定間隔で切り替わり発光が揺らめいて見える。無ければ従来通り円形の図形で描画する
 export async function loadAssets() {
   const [
     background,
@@ -114,6 +117,7 @@ export async function loadAssets() {
     player2Jump,
     player1Attacks,
     player2Attacks,
+    hadoukenSprites,
   ] = await Promise.all([
     loadImage("assets/background.png"),
     loadImage("assets/player1.png"),
@@ -132,6 +136,7 @@ export async function loadAssets() {
     loadJumpSprites("player2"),
     loadAttackSprites("player1"),
     loadAttackSprites("player2"),
+    loadNumberedFrames("hadouken", MAX_HADOUKEN_FRAMES),
   ]);
   return {
     background,
@@ -151,5 +156,6 @@ export async function loadAssets() {
     player2Jump,
     player1Attacks,
     player2Attacks,
+    hadoukenSprites,
   };
 }
