@@ -4,29 +4,112 @@ const BAR_WIDTH = 380;
 const BAR_HEIGHT = 24;
 const SUPER_BAR_WIDTH = 260;
 const SUPER_BAR_HEIGHT = 16;
+const TITLE_BUTTON_WIDTH = 260;
+const TITLE_BUTTON_HEIGHT = 64;
 
-// HP・SUPERゲージ・ポートレート・名前・タイマーをまとめて描画する
-export function drawHud(ctx, player1, player2, canvasWidth, canvasHeight, timeRemaining) {
-  drawSidePanel(ctx, player1, "1P", "PLAYER", canvasWidth, false);
-  drawSidePanel(ctx, player2, "2P", "CPU", canvasWidth, true);
+// タイトル画面のSTARTボタンの矩形（描画・クリック判定の両方で共有する）
+export function getTitleButtonRect(canvasWidth, canvasHeight) {
+  return {
+    x: canvasWidth / 2 - TITLE_BUTTON_WIDTH / 2,
+    y: canvasHeight * 0.68,
+    width: TITLE_BUTTON_WIDTH,
+    height: TITLE_BUTTON_HEIGHT,
+  };
+}
+
+export function isPointInRect(x, y, rect) {
+  return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+}
+
+// 対戦開始前のタイトル画面。ロゴ画像とSTARTボタンを表示する
+export function drawTitleScreen(ctx, canvasWidth, canvasHeight, logoImage, isButtonHovered) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+  gradient.addColorStop(0, "#1a1a3a");
+  gradient.addColorStop(1, "#3a1a2a");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  if (logoImage) {
+    const maxWidth = canvasWidth * 0.7;
+    const maxHeight = canvasHeight * 0.4;
+    const aspect = logoImage.naturalWidth / logoImage.naturalHeight;
+    let drawWidth = maxWidth;
+    let drawHeight = drawWidth / aspect;
+    if (drawHeight > maxHeight) {
+      drawHeight = maxHeight;
+      drawWidth = drawHeight * aspect;
+    }
+    ctx.drawImage(logoImage, canvasWidth / 2 - drawWidth / 2, canvasHeight * 0.15, drawWidth, drawHeight);
+  } else {
+    // ロゴ画像が無い場合のフォールバック（テキストのみ）
+    ctx.fillStyle = "#ffcc33";
+    ctx.textAlign = "center";
+    ctx.font = "bold 64px sans-serif";
+    ctx.fillText("KogaFighter", canvasWidth / 2, canvasHeight * 0.35);
+  }
+
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.font = "20px sans-serif";
+  ctx.fillText("PLAYER vs CPU", canvasWidth / 2, canvasHeight * 0.6);
+
+  const btn = getTitleButtonRect(canvasWidth, canvasHeight);
+  ctx.fillStyle = isButtonHovered ? "#ffe27a" : "#ffcc33";
+  ctx.fillRect(btn.x, btn.y, btn.width, btn.height);
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(btn.x, btn.y, btn.width, btn.height);
+
+  ctx.fillStyle = "#1a1a3a";
+  ctx.font = "bold 28px sans-serif";
+  ctx.fillText("START", btn.x + btn.width / 2, btn.y + btn.height / 2 + 10);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "16px sans-serif";
+  ctx.fillText("クリック または Enterキーで開始", canvasWidth / 2, btn.y + btn.height + 32);
+}
+
+// HP・SUPERゲージ・ポートレート・名前・タイマー・獲得ラウンド数をまとめて描画する。
+// roundWins/roundsToWinを渡さなければラウンドの丸印は表示しない（省略可能）
+export function drawHud(ctx, player1, player2, canvasWidth, canvasHeight, timeRemaining, roundWins, roundsToWin) {
+  drawSidePanel(ctx, player1, "1P", "PLAYER", canvasWidth, false, roundWins?.player1, roundsToWin);
+  drawSidePanel(ctx, player2, "2P", "CPU", canvasWidth, true, roundWins?.player2, roundsToWin);
   drawTimer(ctx, canvasWidth, timeRemaining);
   drawSuperGauge(ctx, player1, canvasWidth, canvasHeight, false);
   drawSuperGauge(ctx, player2, canvasWidth, canvasHeight, true);
 }
 
 // reversed: 2P側（右側）はポートレート・バー・名前の並びを左右反転する
-function drawSidePanel(ctx, player, cornerLabel, name, canvasWidth, reversed) {
+function drawSidePanel(ctx, player, cornerLabel, name, canvasWidth, reversed, wins, roundsToWin) {
   const portraitX = reversed ? canvasWidth - HUD_MARGIN - PORTRAIT_SIZE : HUD_MARGIN;
   const barY = HUD_MARGIN + 6;
   const barX = reversed ? portraitX - 10 - BAR_WIDTH : portraitX + PORTRAIT_SIZE + 10;
 
   drawPortrait(ctx, portraitX, HUD_MARGIN, player, cornerLabel);
   drawHealthBar(ctx, barX, barY, player, reversed);
+  if (roundsToWin) drawRoundPips(ctx, barX, barY - 12, wins || 0, roundsToWin, reversed);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 16px sans-serif";
   ctx.textAlign = reversed ? "right" : "left";
   ctx.fillText(name, reversed ? barX + BAR_WIDTH : barX, barY + BAR_HEIGHT + 20);
+}
+
+// 獲得ラウンド数を丸印で表示する（塗りつぶし=獲得済み、輪郭のみ=未獲得）。HPバーの右上/左上に並べる
+function drawRoundPips(ctx, barX, y, wins, roundsToWin, reversed) {
+  const radius = 6;
+  const gap = 16;
+  for (let i = 0; i < roundsToWin; i++) {
+    const offset = i * gap;
+    const cx = reversed ? barX + BAR_WIDTH - offset - radius : barX + offset + radius;
+    ctx.beginPath();
+    ctx.arc(cx, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = i < wins ? "#ffcc33" : "rgba(255, 255, 255, 0.2)";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 }
 
 // 実在キャラクターの絵は使わず、プレイヤーの色を使った簡易的な自作アイコン
@@ -107,7 +190,55 @@ function drawSuperGauge(ctx, player, canvasWidth, canvasHeight, reversed) {
   ctx.textBaseline = "alphabetic"; // 以降の描画に影響しないよう戻す
 }
 
-export function drawMatchResult(ctx, canvasWidth, canvasHeight, winnerLabel, headerLabel = "K.O.") {
+// 対戦開始前の「ROUND N」→「FIGHT!」演出。背景は暗くせず、選手の立ち姿はそのまま見せる
+export function drawIntroOverlay(ctx, canvasWidth, canvasHeight, phase, roundNumber) {
+  const centerX = canvasWidth / 2;
+  const centerY = canvasHeight / 2;
+
+  ctx.textAlign = "center";
+  ctx.lineJoin = "round";
+
+  if (phase === "ready") {
+    ctx.font = "bold 72px sans-serif";
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#000000";
+    const label = roundNumber ? `ROUND ${roundNumber}` : "READY";
+    ctx.strokeText(label, centerX, centerY);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(label, centerX, centerY);
+  } else if (phase === "fight") {
+    ctx.font = "bold 100px sans-serif";
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = "#000000";
+    ctx.strokeText("FIGHT!", centerX, centerY);
+    ctx.fillStyle = "#ff3333";
+    ctx.fillText("FIGHT!", centerX, centerY);
+  }
+}
+
+// 1ラウンドの決着表示（次のラウンドへ自動で進むため、暗転もリスタート案内も無い軽量版）
+export function drawRoundResult(ctx, canvasWidth, canvasHeight, winnerLabel, headerLabel = "K.O.") {
+  const centerX = canvasWidth / 2;
+  const centerY = canvasHeight / 2;
+
+  ctx.textAlign = "center";
+  ctx.lineJoin = "round";
+
+  ctx.font = "bold 56px sans-serif";
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = "#000000";
+  ctx.strokeText(headerLabel, centerX, centerY - 10);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(headerLabel, centerX, centerY - 10);
+
+  ctx.font = "bold 28px sans-serif";
+  ctx.lineWidth = 5;
+  ctx.strokeText(winnerLabel, centerX, centerY + 40);
+  ctx.fillStyle = "#ffcc33";
+  ctx.fillText(winnerLabel, centerX, centerY + 40);
+}
+
+export function drawMatchResult(ctx, canvasWidth, canvasHeight, winnerLabel, headerLabel = "K.O.", roundWins) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
@@ -119,7 +250,14 @@ export function drawMatchResult(ctx, canvasWidth, canvasHeight, winnerLabel, hea
 
   ctx.font = "28px sans-serif";
   ctx.fillText(winnerLabel, canvasWidth / 2, canvasHeight / 2 + 30);
-  ctx.fillText("Rキーでリスタート", canvasWidth / 2, canvasHeight / 2 + 70);
+
+  if (roundWins) {
+    ctx.font = "20px sans-serif";
+    ctx.fillText(`${roundWins.player1} - ${roundWins.player2}`, canvasWidth / 2, canvasHeight / 2 + 65);
+  }
+
+  ctx.font = "20px sans-serif";
+  ctx.fillText("Rキーでリスタート", canvasWidth / 2, canvasHeight / 2 + (roundWins ? 100 : 70));
 }
 
 const HELP_LINES = [

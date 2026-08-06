@@ -98,6 +98,7 @@ async function loadJumpSprites(prefix) {
 // - assets/player2.png / player2_crouch.png / player2_walkN.png / player2_{...}.png : P2側も同様
 // - assets/hadoukenN.png（N=1,2,3...連番） : 波動拳の弾本体の見た目（P1/P2共通、右向き基準）。
 //   複数コマ用意すると一定間隔で切り替わり発光が揺らめいて見える。無ければ従来通り円形の図形で描画する
+// - assets/title_logo.png : タイトル画面のロゴ（透過PNG推奨）。無ければテキストのロゴ名で代用する
 export async function loadAssets() {
   const [
     background,
@@ -118,6 +119,7 @@ export async function loadAssets() {
     player1Attacks,
     player2Attacks,
     hadoukenSprites,
+    titleLogo,
   ] = await Promise.all([
     loadImage("assets/background.png"),
     loadImage("assets/player1.png"),
@@ -137,6 +139,7 @@ export async function loadAssets() {
     loadAttackSprites("player1"),
     loadAttackSprites("player2"),
     loadNumberedFrames("hadouken", MAX_HADOUKEN_FRAMES),
+    loadImage("assets/title_logo.png"),
   ]);
   return {
     background,
@@ -157,5 +160,6 @@ export async function loadAssets() {
     player1Attacks,
     player2Attacks,
     hadoukenSprites,
+    titleLogo,
   };
 }

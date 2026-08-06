@@ -2,7 +2,7 @@ import { Player, MOVE_SPEED, BACKWARD_MOVE_SPEED, PUSH_SPEED } from "./player.js
 import { GROUND_Y, drawStage } from "./stage.js";
 import { isKeyDown, isKeyJustPressed } from "./input.js";
 import { PUNCH_DATA, KICK_DATA, CROUCH_PUNCH_DATA, CROUCH_KICK_DATA, SPECIAL_DATA, GUARD_CHIP_RATIO, SUPER_GAUGE_GAIN_RATE, rectsOverlap } from "./combat.js";
-import { drawHud, drawMatchResult, drawHelpOverlay } from "./ui.js";
+import { drawHud, drawMatchResult, drawRoundResult, drawHelpOverlay, drawIntroOverlay, drawTitleScreen, getTitleButtonRect, isPointInRect } from "./ui.js";
 import { Projectile } from "./projectile.js";
 import { CpuController } from "./ai.js";
 import {
@@ -19,6 +19,10 @@ import {
 
 const MOTION_GRACE = 0.25; // 秒。↘入力からこの時間は歩行を抑制する
 const ROUND_TIME = 99; // 秒。ラウンドの持ち時間（タイムアップ時はHPが多い方の勝ち）
+const READY_DURATION = 1.2; // 秒。「READY」表示の時間（仮値）
+const FIGHT_DURATION = 0.8; // 秒。「FIGHT!」表示の時間（仮値）
+const ROUNDS_TO_WIN = 2; // 先取本数（仮値）。2本先取＝3本勝負（best of 3）
+const ROUND_RESULT_DURATION = 2.0; // 秒。ラウンド決着後、次のラウンドに進むまでの表示時間（仮値）
 
 export class Game {
   constructor(ctx, canvasWidth, canvasHeight, assets = {}) {
@@ -28,7 +32,7 @@ export class Game {
     this.assets = assets; // { background, player1, player2 }（画像。無ければnull）
 
     this.createPlayers();
-    this.matchOver = false;
+    this.matchOver = false; // マッチ全体（先取本数に達した）の決着。ラウンドごとの決着とは別
     this.winner = null;
     this.endReason = null; // "ko" | "timeup"
     this.projectiles = [];
@@ -36,6 +40,20 @@ export class Game {
     this.elapsed = 0;
     this.timeRemaining = ROUND_TIME;
     this.showHelp = false;
+    this.roundWins = { player1: 0, player2: 0 }; // 各プレイヤーの獲得ラウンド数
+    this.currentRound = 1;
+    // "title"（タイトル画面、STARTボタン待ち）→ "ready" → "fight" → "playing" → "roundEnd"
+    // （decided winnerの場合はplayingに戻らずmatchOver、そうでなければ次ラウンドの"ready"へ）の順に進む。
+    // playingになるまで対戦は始まらない
+    this.introPhase = "title";
+    this.introTimer = 0;
+    this.mouseX = -1;
+    this.mouseY = -1; // タイトル画面のSTARTボタンのホバー表示に使う（canvas内座標）
+  }
+
+  setMousePosition(x, y) {
+    this.mouseX = x;
+    this.mouseY = y;
   }
 
   createPlayers() {
@@ -61,19 +79,87 @@ export class Game {
     });
   }
 
+  // マッチ全体を最初からやり直す（決着後のRキー）。獲得ラウンド数もリセットする
   restart() {
-    this.createPlayers();
+    this.roundWins = { player1: 0, player2: 0 };
+    this.currentRound = 1;
     this.matchOver = false;
+    this.startRound();
+  }
+
+  // 1ラウンド分の状態（プレイヤー・弾・タイマー等）をリセットしてREADYから始める。
+  // 獲得ラウンド数(roundWins)はリセットしない（restart()側で必要なときだけ別途リセットする）
+  startRound() {
+    this.createPlayers();
     this.winner = null;
     this.endReason = null;
     this.projectiles = [];
     clearBuffer(this.commandBuffer1);
     this.timeRemaining = ROUND_TIME;
+    this.introPhase = "ready";
+    this.introTimer = READY_DURATION;
+  }
+
+  // タイトル画面のSTARTボタンが押された（またはEnterキーが押された）ときに対戦を始める
+  startBattle() {
+    if (this.introPhase !== "title") return;
+    this.introPhase = "ready";
+    this.introTimer = READY_DURATION;
+  }
+
+  // canvas内座標(x, y)へのクリックを受け取る。タイトル画面のSTARTボタン判定にのみ使う
+  handleClick(x, y) {
+    if (this.introPhase !== "title") return;
+    if (isPointInRect(x, y, getTitleButtonRect(this.width, this.height))) this.startBattle();
+  }
+
+  // canvas内座標(x, y)がタイトル画面のSTARTボタン上にあるか（カーソル表示の切り替えに使う）
+  isHoveringTitleButton(x, y) {
+    if (this.introPhase !== "title") return false;
+    return isPointInRect(x, y, getTitleButtonRect(this.width, this.height));
+  }
+
+  // 「READY」→「FIGHT!」→（ラウンド終了後）「roundEnd」の演出中はタイマーを進めず、入力も一切受け付けない
+  updateIntro(dt) {
+    this.introTimer -= dt;
+    if (this.introTimer > 0) return;
+
+    if (this.introPhase === "ready") {
+      this.introPhase = "fight";
+      this.introTimer = FIGHT_DURATION;
+    } else if (this.introPhase === "fight") {
+      this.introPhase = "playing";
+    } else if (this.introPhase === "roundEnd") {
+      this.advanceRound();
+    }
+  }
+
+  // ラウンド決着後、先取本数に達していればマッチ終了、そうでなければ次のラウンドを始める
+  advanceRound() {
+    if (this.roundWins.player1 >= ROUNDS_TO_WIN || this.roundWins.player2 >= ROUNDS_TO_WIN) {
+      this.matchOver = true;
+      // "roundEnd"のままだと毎フレームここに来てしまうため、"playing"に戻して
+      // 以降は通常のmatchOver処理（Rキー待ち）に委ねる
+      this.introPhase = "playing";
+      return;
+    }
+    this.currentRound++;
+    this.startRound();
   }
 
   update(dt) {
+    if (this.introPhase === "title") {
+      if (isKeyJustPressed("Enter")) this.startBattle();
+      return;
+    }
+
     if (isKeyJustPressed("Escape")) this.showHelp = !this.showHelp;
     if (this.showHelp) return; // 説明表示中はゲームを一時停止する
+
+    if (this.introPhase !== "playing") {
+      this.updateIntro(dt);
+      return;
+    }
 
     if (this.matchOver) {
       if (isKeyJustPressed("KeyR")) this.restart();
@@ -103,7 +189,7 @@ export class Game {
     this.spawnPendingProjectiles();
     this.checkProjectileClashes();
     this.checkProjectileHits();
-    this.checkMatchEnd();
+    this.checkRoundEnd();
   }
 
   // Sキー押下中かつ接地中であればしゃがみ状態にする（空中ではしゃがめない）
@@ -211,13 +297,13 @@ export class Game {
     defender.gainSuperGauge(gaugeGain);
   }
 
-  checkMatchEnd() {
+  // 1ラウンドの決着を判定する。マッチ全体の決着（先取本数到達）はadvanceRound()側で見る
+  checkRoundEnd() {
     const p1Down = this.player1.hp <= 0;
     const p2Down = this.player2.hp <= 0;
     const timeUp = this.timeRemaining <= 0;
     if (!p1Down && !p2Down && !timeUp) return;
 
-    this.matchOver = true;
     this.endReason = p1Down || p2Down ? "ko" : "timeup";
 
     if (p1Down && p2Down) this.winner = null; // 相打ち
@@ -225,6 +311,13 @@ export class Game {
     else if (p2Down) this.winner = this.player1;
     else if (this.player1.hp === this.player2.hp) this.winner = null; // タイムアップかつ体力同値
     else this.winner = this.player1.hp > this.player2.hp ? this.player1 : this.player2; // タイムアップはHPが多い方の勝ち
+
+    if (this.winner === this.player1) this.roundWins.player1++;
+    else if (this.winner === this.player2) this.roundWins.player2++;
+    // 引き分けラウンドはどちらの獲得本数も増えない（そのまま次のラウンドが行われる）
+
+    this.introPhase = "roundEnd";
+    this.introTimer = ROUND_RESULT_DURATION;
   }
 
   resolveCollision(dt) {
@@ -367,16 +460,31 @@ export class Game {
   render() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);
+
+    if (this.introPhase === "title") {
+      const isHovered = this.isHoveringTitleButton(this.mouseX, this.mouseY);
+      drawTitleScreen(ctx, this.width, this.height, this.assets.titleLogo, isHovered);
+      return;
+    }
+
     drawStage(ctx, this.width, this.height, this.assets.background);
     this.player1.draw(ctx);
     this.player2.draw(ctx);
     for (const projectile of this.projectiles) projectile.draw(ctx);
-    drawHud(ctx, this.player1, this.player2, this.width, this.height, this.timeRemaining);
+    drawHud(ctx, this.player1, this.player2, this.width, this.height, this.timeRemaining, this.roundWins, ROUNDS_TO_WIN);
+
+    if (this.introPhase === "ready" || this.introPhase === "fight") {
+      drawIntroOverlay(ctx, this.width, this.height, this.introPhase, this.currentRound);
+    } else if (this.introPhase === "roundEnd") {
+      const winnerLabel = this.winner === this.player1 ? "PLAYER WINS" : this.winner === this.player2 ? "CPU WINS" : "DRAW";
+      const headerLabel = this.endReason === "timeup" ? "TIME UP" : "K.O.";
+      drawRoundResult(ctx, this.width, this.height, winnerLabel, headerLabel);
+    }
 
     if (this.matchOver) {
       const winnerLabel = this.winner === this.player1 ? "YOU WIN" : this.winner === this.player2 ? "CPU WINS" : "DRAW";
       const headerLabel = this.endReason === "timeup" ? "TIME UP" : "K.O.";
-      drawMatchResult(ctx, this.width, this.height, winnerLabel, headerLabel);
+      drawMatchResult(ctx, this.width, this.height, winnerLabel, headerLabel, this.roundWins);
     }
 
     if (this.showHelp) drawHelpOverlay(ctx, this.width, this.height);
