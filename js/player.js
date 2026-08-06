@@ -13,9 +13,10 @@ export const MAX_SUPER_GAUGE = 100;
 const STAND_HEIGHT = 220;
 const CROUCH_HEIGHT = 150; // しゃがみ時の高さ（見た目・判定用。値は仮）
 const MAX_SPRITE_ASPECT = 0.9; // 立ち絵の「横幅 / 高さ」の上限（仮値）。格闘ゲームキャラは縦長が基本という前提
+const WALK_FRAME_DISTANCE = 30; // px。この距離進むごとに次の歩行コマに切り替える（仮値）
 
 export class Player {
-  constructor({ x, groundY, color, facing, sprite = null, crouchSprite = null }) {
+  constructor({ x, groundY, color, facing, sprite = null, crouchSprite = null, walkSprites = [], attackSprites = {} }) {
     this.width = 100;
     this.height = STAND_HEIGHT;
     this.x = x;
@@ -25,6 +26,10 @@ export class Player {
     this.facing = facing; // 1: 右向き, -1: 左向き
     this.sprite = sprite; // 立ち絵画像（右向き基準）。無ければ図形描画にフォールバックする
     this.crouchSprite = crouchSprite; // しゃがみ絵（右向き基準）。無ければ立ち絵を使う
+    this.walkSprites = walkSprites; // 歩行コマ画像の配列（右向き基準）。無ければ立ち絵のまま歩く
+    this.attackSprites = attackSprites; // { "punch_heavy": { startup, active }, ... }。無ければ立ち絵のまま攻撃する
+    this.isWalking = false;
+    this.walkCycleDistance = 0; // 歩行コマ切り替え用に、歩いた距離を積算する
     this.vx = 0;
     this.vy = 0;
     this.jumpVx = 0; // 踏み切った瞬間に固定される空中の横移動速度
@@ -152,6 +157,14 @@ export class Player {
       this.x = Math.max(0, Math.min(canvasWidth - this.width, this.x));
     }
 
+    // 歩行アニメーション用: 地上を実際に移動しているときだけ距離を積算する
+    this.isWalking = !isAttacking && !this.isStunned && this.isGrounded && this.vx !== 0;
+    if (this.isWalking) {
+      this.walkCycleDistance += Math.abs(this.vx) * dt;
+    } else {
+      this.walkCycleDistance = 0;
+    }
+
     this.vy += (this.vy < 0 ? GRAVITY : FALL_GRAVITY) * dt;
     this.y += this.vy * dt;
 
@@ -189,10 +202,26 @@ export class Player {
     return null;
   }
 
-  // しゃがみ中はしゃがみ絵を優先し、無ければ立ち絵にフォールバックする
+  // 攻撃ポーズ絵 > しゃがみ絵 > 歩行コマ > 立ち絵 の優先順位で選ぶ（それぞれ無ければ次点にフォールバック）
   getCurrentSprite() {
+    const attackSprite = this.getAttackSprite();
+    if (attackSprite) return attackSprite;
     if (this.isCrouching && this.crouchSprite) return this.crouchSprite;
+    if (this.isWalking && this.walkSprites.length > 0) {
+      const index = Math.floor(this.walkCycleDistance / WALK_FRAME_DISTANCE) % this.walkSprites.length;
+      return this.walkSprites[index];
+    }
     return this.sprite;
+  }
+
+  // 攻撃中、その技専用のポーズ絵があれば返す。recovery用の絵は用意しない前提で、
+  // activeのポーズをそのまま流用する（無ければstartupのポーズを流用する）
+  getAttackSprite() {
+    if (!this.attack) return null;
+    const poseSet = this.attackSprites[`${this.attack.type}_${this.attack.strength}`];
+    if (!poseSet) return null;
+    if (this.attack.phase === "startup") return poseSet.startup || poseSet.active || null;
+    return poseSet.active || poseSet.startup || null; // active・recovery共通
   }
 
   // 攻撃モーション用の見た目だけの前後オフセット（当たり判定には一切影響しない）。

@@ -39,8 +39,16 @@ export class Game {
   }
 
   createPlayers() {
-    this.player1 = new Player({ x: 250, groundY: GROUND_Y, color: "#3366ff", facing: 1, sprite: this.assets.player1, crouchSprite: this.assets.player1Crouch });
-    this.player2 = new Player({ x: 850, groundY: GROUND_Y, color: "#ff3333", facing: -1, sprite: this.assets.player2, crouchSprite: this.assets.player2Crouch });
+    this.player1 = new Player({
+      x: 250, groundY: GROUND_Y, color: "#3366ff", facing: 1,
+      sprite: this.assets.player1, crouchSprite: this.assets.player1Crouch,
+      walkSprites: this.assets.player1Walk, attackSprites: this.assets.player1Attacks,
+    });
+    this.player2 = new Player({
+      x: 850, groundY: GROUND_Y, color: "#ff3333", facing: -1,
+      sprite: this.assets.player2, crouchSprite: this.assets.player2Crouch,
+      walkSprites: this.assets.player2Walk, attackSprites: this.assets.player2Attacks,
+    });
     this.cpu = new CpuController(this.player2, this.player1, {
       hasOwnProjectile: () => this.hasActiveProjectile(this.player2),
       canvasWidth: this.width,
