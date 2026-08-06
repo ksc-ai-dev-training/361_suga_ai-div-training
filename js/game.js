@@ -43,14 +43,16 @@ export class Game {
       x: 250, groundY: GROUND_Y, color: "#3366ff", facing: 1,
       sprite: this.assets.player1, crouchSprite: this.assets.player1Crouch,
       walkSprites: this.assets.player1Walk, crouchTransitionSprites: this.assets.player1CrouchTransition,
-      guardSprite: this.assets.player1Guard,
+      guardSprite: this.assets.player1Guard, hitSprite: this.assets.player1Hit,
+      jumpSprites: this.assets.player1Jump,
       attackSprites: this.assets.player1Attacks,
     });
     this.player2 = new Player({
       x: 850, groundY: GROUND_Y, color: "#ff3333", facing: -1,
       sprite: this.assets.player2, crouchSprite: this.assets.player2Crouch,
       walkSprites: this.assets.player2Walk, crouchTransitionSprites: this.assets.player2CrouchTransition,
-      guardSprite: this.assets.player2Guard,
+      guardSprite: this.assets.player2Guard, hitSprite: this.assets.player2Hit,
+      jumpSprites: this.assets.player2Jump,
       attackSprites: this.assets.player2Attacks,
     });
     this.cpu = new CpuController(this.player2, this.player1, {

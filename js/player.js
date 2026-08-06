@@ -15,9 +15,24 @@ const CROUCH_HEIGHT = 150; // しゃがみ時の高さ（見た目・判定用�
 const MAX_SPRITE_ASPECT = 0.9; // 立ち絵の「横幅 / 高さ」の上限（仮値）。格闘ゲームキャラは縦長が基本という前提
 const WALK_FRAME_DISTANCE = 30; // px。この距離進むごとに次の歩行コマに切り替える（仮値）
 const CROUCH_TRANSITION_DURATION = 0.15; // 秒。立ち⇔しゃがみの遷移コマを最後まで再生するのにかかる時間（仮値）
+const JUMP_SQUAT_DURATION = 4 / 60; // 秒（4F、仮値）。ジャンプ入力からしゃがみ込み、実際に浮き上がるまでの「ため」時間
+const JUMP_APEX_VY_THRESHOLD = 200; // px/秒。上下速度がこの範囲に収まっていればジャンプの頂点(apex)ポーズとみなす（仮値）
 
 export class Player {
-  constructor({ x, groundY, color, facing, sprite = null, crouchSprite = null, walkSprites = [], crouchTransitionSprites = [], guardSprite = null, attackSprites = {} }) {
+  constructor({
+    x,
+    groundY,
+    color,
+    facing,
+    sprite = null,
+    crouchSprite = null,
+    walkSprites = [],
+    crouchTransitionSprites = [],
+    guardSprite = null,
+    hitSprite = null,
+    jumpSprites = {},
+    attackSprites = {},
+  }) {
     this.width = 100;
     this.height = STAND_HEIGHT;
     this.x = x;
@@ -31,12 +46,17 @@ export class Player {
     this.crouchTransitionSprites = crouchTransitionSprites; // 立ち⇔しゃがみの遷移コマ配列。無ければ遷移なしで切り替わる
     this.crouchTransitionProgress = 0; // 0=立ち, 1=しゃがみ切り
     this.guardSprite = guardSprite; // 立ちガード絵（右向き基準）。無ければ通常のポーズに暗い色が乗るだけになる
+    this.hitSprite = hitSprite; // 被弾（ヒット反応）絵（右向き基準）。無ければ通常のポーズに赤い色が乗るだけになる
+    this.jumpSprites = jumpSprites; // { anticipation: [...], rise: [...], apex: [...], fall: [...] }。無ければ従来通り立ち絵/しゃがみ絵のまま
     this.attackSprites = attackSprites; // { "punch_heavy": { startup, active }, ... }。無ければ立ち絵のまま攻撃する
     this.isWalking = false;
     this.walkCycleDistance = 0; // 歩行コマ切り替え用に、歩いた距離を積算する
     this.vx = 0;
     this.vy = 0;
     this.jumpVx = 0; // 踏み切った瞬間に固定される空中の横移動速度
+    this.jumpSquatTimer = 0; // ジャンプ入力後、実際に浮き上がるまでの「ため」の残り時間
+    this.pendingJumpDirection = 0; // ため中に保持しておく踏み切り方向（-1/0/1）
+    this.pendingJumpFacing = 1; // ジャンプ入力を受けた瞬間のfacing。ため中にfacingが変わっても前後判定がぶれないようにする
     this.isGrounded = true;
     this.isCrouching = false; // Game側がSキー押下＆接地中に応じて設定する
     this.isGuarding = false; // Game/CpuControllerが後方入力＆接地中に応じて設定する
@@ -53,6 +73,23 @@ export class Player {
 
   get isStunned() {
     return this.hitstunTimer > 0 || this.blockstunTimer > 0;
+  }
+
+  // ガード構え（後方入力）ではなく、実際に攻撃を防いだ瞬間（ガード硬直中）かどうか。
+  // ガードポーズ絵はこちらの状態でのみ表示する（後退中に常時ガード絵になるのを防ぐため）
+  get isBlockingHit() {
+    return this.blockstunTimer > 0;
+  }
+
+  // 実際に攻撃を食らってヒット硬直中かどうか。被弾ポーズ絵はこの状態でのみ表示する
+  get isTakingHit() {
+    return this.hitstunTimer > 0;
+  }
+
+  // ジャンプ入力を受けてから実際に浮き上がるまでの「ため」中かどうか。
+  // この間は接地したままだが、移動・攻撃はできない
+  get isJumpSquatting() {
+    return this.jumpSquatTimer > 0;
   }
 
   takeDamage(amount) {
@@ -82,15 +119,29 @@ export class Player {
     this.blockstunTimer = duration;
   }
 
-  // direction: -1(左) / 0(入力なし) / 1(右) … 踏み切った瞬間の入力方向
+  // direction: -1(左) / 0(入力なし) / 1(右) … 踏み切った瞬間の入力方向。
+  // 即座には浮き上がらず、まず「ため」（JUMP_SQUAT_DURATION）を開始する。
+  // 実際の浮き上がりはupdateJumpSquat()で、ため時間の経過後に行われる
   jump(direction) {
-    if (!this.isGrounded || this.attack || this.isStunned) return;
+    if (!this.isGrounded || this.attack || this.isStunned || this.isJumpSquatting) return;
+    this.jumpSquatTimer = JUMP_SQUAT_DURATION;
+    this.pendingJumpDirection = direction;
+    this.pendingJumpFacing = this.facing;
+  }
+
+  // ため時間を消化し、経過したら実際にジャンプを開始する（速度付与・isGrounded解除）
+  updateJumpSquat(dt) {
+    if (this.jumpSquatTimer <= 0) return;
+    this.jumpSquatTimer = Math.max(0, this.jumpSquatTimer - dt);
+    if (this.jumpSquatTimer > 0) return;
+
     this.vy = -JUMP_VELOCITY;
     this.isGrounded = false;
 
+    const direction = this.pendingJumpDirection;
     if (direction === 0) {
       this.jumpVx = 0; // 垂直ジャンプ
-    } else if (direction === this.facing) {
+    } else if (direction === this.pendingJumpFacing) {
       this.jumpVx = direction * FORWARD_JUMP_SPEED; // 前ジャンプ
     } else {
       this.jumpVx = direction * BACKWARD_JUMP_SPEED; // 後ろジャンプ
@@ -98,7 +149,7 @@ export class Player {
   }
 
   startAttack(type, strength, data) {
-    if (this.attack || this.isStunned) return; // 攻撃中・硬直中は新しい攻撃を受け付けない
+    if (this.attack || this.isStunned || this.isJumpSquatting) return; // 攻撃中・硬直中・ジャンプのため中は新しい攻撃を受け付けない
     this.attack = { type, strength, data, phase: "startup", timer: 0, hasHit: false, projectileSpawned: false };
   }
 
@@ -165,17 +216,18 @@ export class Player {
   update(dt, canvasWidth) {
     this.updateCrouch();
     this.updateCrouchTransition(dt);
+    this.updateJumpSquat(dt);
 
     const isAttacking = !!this.attack;
 
-    if (!isAttacking && !this.isStunned) {
+    if (!isAttacking && !this.isStunned && !this.isJumpSquatting) {
       const moveVx = this.isGrounded ? this.vx : this.jumpVx;
       this.x += moveVx * dt;
       this.x = Math.max(0, Math.min(canvasWidth - this.width, this.x));
     }
 
     // 歩行アニメーション用: 地上を実際に移動しているときだけ距離を積算する
-    this.isWalking = !isAttacking && !this.isStunned && this.isGrounded && this.vx !== 0;
+    this.isWalking = !isAttacking && !this.isStunned && !this.isJumpSquatting && this.isGrounded && this.vx !== 0;
     if (this.isWalking) {
       this.walkCycleDistance += Math.abs(this.vx) * dt;
     } else {
@@ -214,22 +266,36 @@ export class Player {
   getStateTint() {
     if (this.hitFlashTimer > 0) return { color: "#ffffff", alpha: 0.85 };
     if (this.guardFlashTimer > 0) return { color: "#66ccff", alpha: 0.6 };
-    if (this.hitstunTimer > 0) return { color: "#994444", alpha: 0.45 }; // ヒット硬直中（反撃のチャンス）
-    // ガード構え中は少し暗く。ただし専用のガード絵を表示中はそれ自体で分かるため重ねない
-    if (this.isGuarding && !(this.guardSprite && !this.isCrouching)) return { color: "#000000", alpha: 0.3 };
+    // ヒット硬直中（反撃のチャンス）は少し赤く。ただし専用の被弾絵を表示中はそれ自体で分かるため重ねない
+    if (this.hitstunTimer > 0 && !(this.isTakingHit && !this.isCrouching && this.hitSprite)) {
+      return { color: "#994444", alpha: 0.45 };
+    }
+    // ガード構え中は少し暗く。ただし実際に攻撃を防いでガード絵を表示中はそれ自体で分かるため重ねない
+    if (this.isGuarding && !(this.isBlockingHit && !this.isCrouching && this.guardSprite)) {
+      return { color: "#000000", alpha: 0.3 };
+    }
     return null;
   }
 
-  // 攻撃ポーズ絵 > 立ちガード絵(しゃがみ中は除く) > 立ち⇔しゃがみ遷移コマ/しゃがみ絵 > 歩行コマ > 立ち絵 の優先順位で選ぶ
-  // （それぞれ無ければ次点にフォールバック）。しゃがみガードには専用絵が無いため、
-  // しゃがみ中はガード絵より従来通りしゃがみ絵を優先する
+  // 攻撃ポーズ絵 > 被弾絵(実際にヒットを食らった瞬間のみ・しゃがみ中は除く) > 立ちガード絵(実際に攻撃を防いだ瞬間のみ・しゃがみ中は除く)
+  // > ジャンプポーズ絵(ため中・空中) > 立ち⇔しゃがみ遷移コマ/しゃがみ絵 > 歩行コマ > 立ち絵 の優先順位で選ぶ
+  // （それぞれ無ければ次点にフォールバック）。ガード構え（後方入力）だけでは切り替わらず、
+  // 実際に攻撃を防いだ（ガード硬直中）ときだけガード絵になる。
+  // しゃがみ中は被弾絵・ガード絵どちらも専用絵が無いため、従来通りしゃがみ絵を優先する
   getCurrentSprite() {
     const attackSprite = this.getAttackSprite();
     if (attackSprite) return attackSprite;
 
-    if (this.isGuarding && !this.isCrouching && this.guardSprite) {
+    if (this.isTakingHit && !this.isCrouching && this.hitSprite) {
+      return this.hitSprite;
+    }
+
+    if (this.isBlockingHit && !this.isCrouching && this.guardSprite) {
       return this.guardSprite;
     }
+
+    const jumpSprite = this.getJumpSprite();
+    if (jumpSprite) return jumpSprite;
 
     if (this.crouchTransitionSprites.length > 0) {
       // 遷移コマがある場合は、進捗(0〜1)に応じて遷移コマを切り替える。
@@ -276,6 +342,31 @@ export class Player {
 
     if (activeFrames.length > 0) return activeFrames[activeFrames.length - 1];
     if (startupFrames.length > 0) return startupFrames[startupFrames.length - 1];
+    return null;
+  }
+
+  // ジャンプの「ため」中（地上）または空中中、そのフェーズに応じたポーズ絵があれば返す。
+  // ため中は経過割合に応じてanticipationコマを順番に切り替え、空中中は上下速度(vy)の符号で
+  // rise(上昇)/apex(頂点付近)/fall(下降)を判定する。どのフェーズも無ければ次点にフォールバックする
+  getJumpSprite() {
+    const j = this.jumpSprites;
+
+    if (this.isJumpSquatting) {
+      const frames = j.anticipation || [];
+      if (frames.length === 0) return null;
+      const progress = Math.min(0.999, 1 - this.jumpSquatTimer / JUMP_SQUAT_DURATION);
+      return frames[Math.floor(progress * frames.length)];
+    }
+
+    if (!this.isGrounded) {
+      let phaseFrames;
+      if (Math.abs(this.vy) < JUMP_APEX_VY_THRESHOLD) phaseFrames = j.apex;
+      else if (this.vy < 0) phaseFrames = j.rise;
+      else phaseFrames = j.fall;
+
+      if (phaseFrames && phaseFrames.length > 0) return phaseFrames[phaseFrames.length - 1];
+    }
+
     return null;
   }
 

@@ -18,6 +18,8 @@ const ATTACK_STRENGTHS_BY_TYPE = {
   special: ["hadouken", "hadoukenSuper"],
 };
 const ATTACK_PHASES = ["startup", "active"]; // recoveryは専用画像を用意せず、activeの最終コマを流用する
+const MAX_JUMP_PHASE_FRAMES = 4; // ジャンプの各フェーズ(anticipation/rise/apex/fall)で最大何コマまで試すか
+const JUMP_PHASES = ["anticipation", "rise", "apex", "fall"];
 
 // assets/{baseName}1.png, {baseName}2.png, ... を連番で読み込み、存在するものだけを順番に配列で返す
 async function loadNumberedFrames(baseName, maxCount) {
@@ -61,6 +63,22 @@ async function loadAttackSprites(prefix) {
   return result;
 }
 
+// assets/{prefix}_jump_{phase}{N}.png （例: player1_jump_rise1.png）を存在するフェーズだけ読み込み、
+// { anticipation: [img,...], rise: [img,...], apex: [img,...], fall: [img,...] } の形で返す。
+// phase=anticipationはジャンプ入力後の「ため」中（地上）、rise/apex/fallは空中中に使われる
+async function loadJumpSprites(prefix) {
+  const result = {};
+  const jobs = [];
+  for (const phase of JUMP_PHASES) {
+    const job = loadNumberedFrames(`${prefix}_jump_${phase}`, MAX_JUMP_PHASE_FRAMES).then((frames) => {
+      result[phase] = frames;
+    });
+    jobs.push(job);
+  }
+  await Promise.all(jobs);
+  return result;
+}
+
 // assets/ フォルダに背景・キャラクター画像を置くと自動的に読み込まれる。
 // - assets/background.png     : ステージ背景
 // - assets/player1.png        : P1キャラクター 立ち絵（透過PNG推奨、右向き）
@@ -69,6 +87,10 @@ async function loadAttackSprites(prefix) {
 // - assets/player1_crouch_transitionN.png : 立ち⇔しゃがみの遷移コマ（N=1,2,3...連番。無ければ遷移なしで
 //   即座にしゃがみ絵に切り替わる）
 // - assets/player1_guard.png  : P1キャラクター ガード絵（無ければ通常のポーズのまま暗く色が乗る）
+// - assets/player1_hit.png    : P1キャラクター 被弾（ヒット反応）絵（無ければ通常のポーズのまま赤く色が乗る）
+// - assets/player1_jump_{phase}N.png : ジャンプポーズ（phase=anticipation/rise/apex/fall、N=1,2,3...連番）。
+//   anticipationはジャンプ入力後の「ため」中、rise/apex/fallは空中中に上下速度に応じて使われる。無ければ従来通り
+//   立ち絵/しゃがみ絵のままジャンプする
 // - assets/player1_{type}_{strength}_{phase}{N}.png : 攻撃ポーズ（type=punch/kick/special,
 //   strength=light/medium/heavy または hadouken/hadoukenSuper, phase=startup/active, N=1,2,3...連番）。
 //   無ければ立ち絵のまま攻撃する
@@ -86,6 +108,10 @@ export async function loadAssets() {
     player2CrouchTransition,
     player1Guard,
     player2Guard,
+    player1Hit,
+    player2Hit,
+    player1Jump,
+    player2Jump,
     player1Attacks,
     player2Attacks,
   ] = await Promise.all([
@@ -100,6 +126,10 @@ export async function loadAssets() {
     loadNumberedFrames("player2_crouch_transition", MAX_CROUCH_TRANSITION_FRAMES),
     loadImage("assets/player1_guard.png"),
     loadImage("assets/player2_guard.png"),
+    loadImage("assets/player1_hit.png"),
+    loadImage("assets/player2_hit.png"),
+    loadJumpSprites("player1"),
+    loadJumpSprites("player2"),
     loadAttackSprites("player1"),
     loadAttackSprites("player2"),
   ]);
@@ -115,6 +145,10 @@ export async function loadAssets() {
     player2CrouchTransition,
     player1Guard,
     player2Guard,
+    player1Hit,
+    player2Hit,
+    player1Jump,
+    player2Jump,
     player1Attacks,
     player2Attacks,
   };
