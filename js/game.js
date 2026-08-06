@@ -140,7 +140,8 @@ export class Game {
     this.projectiles.push(new Projectile({ x, y, direction: player.facing, owner: player, config: cfg }));
   }
 
-  // 持ち主が異なる弾同士が重なったら、両方消して相殺する
+  // 持ち主が異なる弾同士が重なったら、威力(damage)が高い方が生き残り、低い方だけ消える。
+  // 同威力同士は相殺で両方消える
   checkProjectileClashes() {
     for (let i = 0; i < this.projectiles.length; i++) {
       const a = this.projectiles[i];
@@ -151,8 +152,12 @@ export class Game {
         if (b.dead || b.owner === a.owner) continue;
 
         if (rectsOverlap(a.getHitbox(), b.getHitbox())) {
-          a.dead = true;
-          b.dead = true;
+          if (a.damage > b.damage) b.dead = true;
+          else if (b.damage > a.damage) a.dead = true;
+          else {
+            a.dead = true;
+            b.dead = true;
+          }
           break;
         }
       }

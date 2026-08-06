@@ -12,6 +12,7 @@ export const MAX_HP = 10000;
 export const MAX_SUPER_GAUGE = 100;
 const STAND_HEIGHT = 220;
 const CROUCH_HEIGHT = 150; // しゃがみ時の高さ（見た目・判定用。値は仮）
+const MAX_SPRITE_ASPECT = 0.9; // 立ち絵の「横幅 / 高さ」の上限（仮値）。格闘ゲームキャラは縦長が基本という前提
 
 export class Player {
   constructor({ x, groundY, color, facing, sprite = null, crouchSprite = null }) {
@@ -194,38 +195,61 @@ export class Player {
     return this.sprite;
   }
 
+  // 攻撃モーション用の見た目だけの前後オフセット（当たり判定には一切影響しない）。
+  // 技のリーチ(range)に応じて突き出し量を決め、startupで踏み込み→activeで最大→recoveryで戻る
+  getAttackVisualOffset() {
+    if (!this.attack) return 0;
+    const a = this.attack;
+    const peak = a.data.range * 0.25;
+    if (peak === 0) return 0; // 波動拳など、その場で出す技は動かさない
+
+    let progress;
+    if (a.phase === "startup") progress = (a.timer / a.data.startup) * 0.5;
+    else if (a.phase === "active") progress = 1;
+    else progress = 1 - a.timer / a.data.recovery; // recovery
+
+    progress = Math.max(0, Math.min(1, progress));
+    return this.facing * peak * progress;
+  }
+
   draw(ctx) {
+    const offsetX = this.getAttackVisualOffset();
     const sprite = this.getCurrentSprite();
-    if (sprite) this.drawSprite(ctx, sprite);
-    else this.drawRect(ctx);
+    if (sprite) this.drawSprite(ctx, sprite, offsetX);
+    else this.drawRect(ctx, offsetX);
 
     const hitbox = this.getHitbox();
     if (hitbox) {
       ctx.fillStyle = "rgba(255, 230, 0, 0.6)";
-      ctx.fillRect(hitbox.x, hitbox.y, hitbox.width, hitbox.height);
+      ctx.fillRect(hitbox.x + offsetX, hitbox.y, hitbox.width, hitbox.height);
     }
   }
 
-  drawRect(ctx) {
+  drawRect(ctx, offsetX) {
     if (this.hitFlashTimer > 0) ctx.fillStyle = "#ffffff";
     else if (this.guardFlashTimer > 0) ctx.fillStyle = "#66ccff";
     else if (this.hitstunTimer > 0) ctx.fillStyle = "#994444"; // ヒット硬直中（反撃のチャンス）
     else if (this.isGuarding) ctx.fillStyle = "#3a3a5c"; // ガード構え中は少し暗い色に
     else ctx.fillStyle = this.color;
-    ctx.fillRect(this.x, this.y, this.width, this.height);
+    const x = this.x + offsetX;
+    ctx.fillRect(x, this.y, this.width, this.height);
 
     // 向きを示すインジケーター（前面に濃い帯を表示）
     const stripeWidth = 8;
-    const stripeX = this.facing === 1 ? this.x + this.width - stripeWidth : this.x;
+    const stripeX = this.facing === 1 ? x + this.width - stripeWidth : x;
     ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
     ctx.fillRect(stripeX, this.y, stripeWidth, this.height);
   }
 
-  // 画像を足元基準・アスペクト比維持で描画する（ハートボックスとは別サイズになりうる）
-  drawSprite(ctx, img) {
+  // 画像を足元基準・アスペクト比維持で描画する（ハートボックスとは別サイズになりうる）。
+  // 横長すぎる画像（スカーフ等の装飾で横に広がっている場合など）は、他方のキャラと
+  // 見た目のサイズが揃うよう、高さに対する横幅の比率に上限をかける
+  drawSprite(ctx, img, offsetX) {
     const displayHeight = this.height;
-    const displayWidth = displayHeight * (img.naturalWidth / img.naturalHeight);
-    const centerX = this.x + this.width / 2;
+    const rawAspect = img.naturalWidth / img.naturalHeight;
+    const aspect = Math.min(rawAspect, MAX_SPRITE_ASPECT);
+    const displayWidth = displayHeight * aspect;
+    const centerX = this.x + offsetX + this.width / 2;
     const feetY = this.y + this.height;
 
     ctx.save();
