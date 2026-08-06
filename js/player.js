@@ -14,9 +14,10 @@ const STAND_HEIGHT = 220;
 const CROUCH_HEIGHT = 150; // しゃがみ時の高さ（見た目・判定用。値は仮）
 const MAX_SPRITE_ASPECT = 0.9; // 立ち絵の「横幅 / 高さ」の上限（仮値）。格闘ゲームキャラは縦長が基本という前提
 const WALK_FRAME_DISTANCE = 30; // px。この距離進むごとに次の歩行コマに切り替える（仮値）
+const CROUCH_TRANSITION_DURATION = 0.15; // 秒。立ち⇔しゃがみの遷移コマを最後まで再生するのにかかる時間（仮値）
 
 export class Player {
-  constructor({ x, groundY, color, facing, sprite = null, crouchSprite = null, walkSprites = [], attackSprites = {} }) {
+  constructor({ x, groundY, color, facing, sprite = null, crouchSprite = null, walkSprites = [], crouchTransitionSprites = [], guardSprite = null, attackSprites = {} }) {
     this.width = 100;
     this.height = STAND_HEIGHT;
     this.x = x;
@@ -27,6 +28,9 @@ export class Player {
     this.sprite = sprite; // 立ち絵画像（右向き基準）。無ければ図形描画にフォールバックする
     this.crouchSprite = crouchSprite; // しゃがみ絵（右向き基準）。無ければ立ち絵を使う
     this.walkSprites = walkSprites; // 歩行コマ画像の配列（右向き基準）。無ければ立ち絵のまま歩く
+    this.crouchTransitionSprites = crouchTransitionSprites; // 立ち⇔しゃがみの遷移コマ配列。無ければ遷移なしで切り替わる
+    this.crouchTransitionProgress = 0; // 0=立ち, 1=しゃがみ切り
+    this.guardSprite = guardSprite; // 立ちガード絵（右向き基準）。無ければ通常のポーズに暗い色が乗るだけになる
     this.attackSprites = attackSprites; // { "punch_heavy": { startup, active }, ... }。無ければ立ち絵のまま攻撃する
     this.isWalking = false;
     this.walkCycleDistance = 0; // 歩行コマ切り替え用に、歩いた距離を積算する
@@ -146,8 +150,21 @@ export class Player {
     this.y = feetY - this.height;
   }
 
+  // 立ち⇔しゃがみの見た目の遷移（当たり判定の高さ自体はupdateCrouch()で即座に切り替わる）。
+  // 0(立ち)〜1(しゃがみ切り)の間を一定速度で行き来し、遷移コマ絵の選択に使う
+  updateCrouchTransition(dt) {
+    const target = this.isCrouching && this.isGrounded ? 1 : 0;
+    const step = dt / CROUCH_TRANSITION_DURATION;
+    if (this.crouchTransitionProgress < target) {
+      this.crouchTransitionProgress = Math.min(target, this.crouchTransitionProgress + step);
+    } else if (this.crouchTransitionProgress > target) {
+      this.crouchTransitionProgress = Math.max(target, this.crouchTransitionProgress - step);
+    }
+  }
+
   update(dt, canvasWidth) {
     this.updateCrouch();
+    this.updateCrouchTransition(dt);
 
     const isAttacking = !!this.attack;
 
@@ -198,30 +215,68 @@ export class Player {
     if (this.hitFlashTimer > 0) return { color: "#ffffff", alpha: 0.85 };
     if (this.guardFlashTimer > 0) return { color: "#66ccff", alpha: 0.6 };
     if (this.hitstunTimer > 0) return { color: "#994444", alpha: 0.45 }; // ヒット硬直中（反撃のチャンス）
-    if (this.isGuarding) return { color: "#000000", alpha: 0.3 }; // ガード構え中は少し暗く
+    // ガード構え中は少し暗く。ただし専用のガード絵を表示中はそれ自体で分かるため重ねない
+    if (this.isGuarding && !(this.guardSprite && !this.isCrouching)) return { color: "#000000", alpha: 0.3 };
     return null;
   }
 
-  // 攻撃ポーズ絵 > しゃがみ絵 > 歩行コマ > 立ち絵 の優先順位で選ぶ（それぞれ無ければ次点にフォールバック）
+  // 攻撃ポーズ絵 > 立ちガード絵(しゃがみ中は除く) > 立ち⇔しゃがみ遷移コマ/しゃがみ絵 > 歩行コマ > 立ち絵 の優先順位で選ぶ
+  // （それぞれ無ければ次点にフォールバック）。しゃがみガードには専用絵が無いため、
+  // しゃがみ中はガード絵より従来通りしゃがみ絵を優先する
   getCurrentSprite() {
     const attackSprite = this.getAttackSprite();
     if (attackSprite) return attackSprite;
-    if (this.isCrouching && this.crouchSprite) return this.crouchSprite;
+
+    if (this.isGuarding && !this.isCrouching && this.guardSprite) {
+      return this.guardSprite;
+    }
+
+    if (this.crouchTransitionSprites.length > 0) {
+      // 遷移コマがある場合は、進捗(0〜1)に応じて遷移コマを切り替える。
+      // 専用のしゃがみ絵は使わず、遷移コマの最後のコマをそのまましゃがみ姿勢として扱う
+      if (this.crouchTransitionProgress > 0) {
+        const frameCount = this.crouchTransitionSprites.length;
+        const index = Math.min(frameCount - 1, Math.floor(this.crouchTransitionProgress * frameCount));
+        return this.crouchTransitionSprites[index];
+      }
+    } else if (this.isCrouching && this.crouchSprite) {
+      // 遷移コマが無ければ、これまで通り即座にしゃがみ絵へ切り替える
+      return this.crouchSprite;
+    }
+
     if (this.isWalking && this.walkSprites.length > 0) {
-      const index = Math.floor(this.walkCycleDistance / WALK_FRAME_DISTANCE) % this.walkSprites.length;
+      const frameCount = this.walkSprites.length;
+      let index = Math.floor(this.walkCycleDistance / WALK_FRAME_DISTANCE) % frameCount;
+      // 歩行コマは前進の歩き（1→2→3...）を撮ったもの。後退中は同じコマを逆順に再生することで、
+      // 新しい画像を用意せずに自然な後退の足運びに見せる
+      const movingDirection = Math.sign(this.vx);
+      const isMovingBackward = movingDirection !== 0 && movingDirection !== this.facing;
+      if (isMovingBackward) index = frameCount - 1 - index;
       return this.walkSprites[index];
     }
     return this.sprite;
   }
 
-  // 攻撃中、その技専用のポーズ絵があれば返す。recovery用の絵は用意しない前提で、
-  // activeのポーズをそのまま流用する（無ければstartupのポーズを流用する）
+  // 攻撃中、その技専用のポーズ絵があれば返す。フェーズ内に複数コマある場合は、
+  // そのフェーズの経過時間の割合に応じて何コマ目を表示するか決める（例: 波動拳の溜め動作）。
+  // recovery用の絵は用意しない前提で、activeの最終コマをそのまま流用する（無ければstartupの最終コマ）
   getAttackSprite() {
     if (!this.attack) return null;
-    const poseSet = this.attackSprites[`${this.attack.type}_${this.attack.strength}`];
+    const a = this.attack;
+    const poseSet = this.attackSprites[`${a.type}_${a.strength}`];
     if (!poseSet) return null;
-    if (this.attack.phase === "startup") return poseSet.startup || poseSet.active || null;
-    return poseSet.active || poseSet.startup || null; // active・recovery共通
+
+    const startupFrames = poseSet.startup || [];
+    const activeFrames = poseSet.active || [];
+
+    if (a.phase === "startup" && startupFrames.length > 0) {
+      const progress = Math.min(0.999, a.timer / a.data.startup);
+      return startupFrames[Math.floor(progress * startupFrames.length)];
+    }
+
+    if (activeFrames.length > 0) return activeFrames[activeFrames.length - 1];
+    if (startupFrames.length > 0) return startupFrames[startupFrames.length - 1];
+    return null;
   }
 
   // 攻撃モーション用の見た目だけの前後オフセット（当たり判定には一切影響しない）。
@@ -271,10 +326,12 @@ export class Player {
   }
 
   // 画像を足元基準・アスペクト比維持で描画する（ハートボックスとは別サイズになりうる）。
+  // 表示サイズは常に立ち高さ(STAND_HEIGHT)基準の固定値にし、しゃがみ中でもハートボックスが
+  // 縮んだ分だけ画像まで縮小されないようにする（足元の位置だけは実際のハートボックスに合わせる）。
   // 横長すぎる画像（スカーフ等の装飾で横に広がっている場合など）は、他方のキャラと
   // 見た目のサイズが揃うよう、高さに対する横幅の比率に上限をかける
   drawSprite(ctx, img, offsetX) {
-    const displayHeight = this.height;
+    const displayHeight = STAND_HEIGHT;
     const rawAspect = img.naturalWidth / img.naturalHeight;
     const aspect = Math.min(rawAspect, MAX_SPRITE_ASPECT);
     const displayWidth = displayHeight * aspect;
