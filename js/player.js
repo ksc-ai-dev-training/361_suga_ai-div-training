@@ -1,4 +1,4 @@
-ｓexport const MOVE_SPEED = 250; // px/秒（前進）
+export const MOVE_SPEED = 250; // px/秒（前進）
 export const BACKWARD_MOVE_SPEED = 150; // px/秒（後ろ下がり）
 export const FORWARD_JUMP_SPEED = 500; // px/秒（前ジャンプの水平速度）
 export const BACKWARD_JUMP_SPEED = 300; // px/秒（後ろジャンプの水平速度）
