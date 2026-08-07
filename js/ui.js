@@ -120,6 +120,17 @@ export function drawOnlineLobbyScreen(ctx, canvasWidth, canvasHeight) {
   ctx.fillText("画面下のパネルから「部屋を作る」または「参加する」を選んでください", canvasWidth / 2, canvasHeight * 0.4);
 }
 
+// ルームのロビー画面（対戦中でない間の背景）。実際のUI（メンバー一覧・対戦枠・チャット）は
+// canvasの上に重ねたHTMLパネル（index.htmlの#roomPanel、main.jsで表示切り替え）で描画するため、
+// ここでは背景のみ描画する
+export function drawRoomScreen(ctx, canvasWidth, canvasHeight) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+  gradient.addColorStop(0, "#1a1a3a");
+  gradient.addColorStop(1, "#3a1a2a");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+}
+
 // HP・SUPERゲージ・ポートレート・名前・タイマー・獲得ラウンド数をまとめて描画する。
 // roundWins/roundsToWinを渡さなければラウンドの丸印は表示しない（省略可能）。
 // player2Name: 2P側の表示名（通常対戦時は"CPU"、VS 2Pモードでは"2P"などを渡す）
@@ -291,7 +302,29 @@ export function drawRoundResult(ctx, canvasWidth, canvasHeight, winnerLabel, hea
   ctx.fillText(winnerLabel, centerX, centerY + 40);
 }
 
-export function drawMatchResult(ctx, canvasWidth, canvasHeight, winnerLabel, headerLabel = "K.O.", roundWins) {
+const RESULT_BUTTON_WIDTH = 220;
+const RESULT_BUTTON_HEIGHT = 56;
+const RESULT_BUTTON_GAP = 20;
+const RESULT_BUTTON_Y_OFFSET = 95; // canvasHeight/2 からのオフセット
+
+// マッチ決着画面の選択肢ボタンの矩形を、横並びの位置(0〜count-1)から計算する。
+// ボタンの構成（個数・ラベル）はGame側が対戦の文脈（通常/ルーム対戦/観戦）に応じて決めるため、
+// countを引数で受け取る汎用形にしてある。描画・クリック判定・ホバー判定の全てで共有する
+export function getResultButtonRect(index, count, canvasWidth, canvasHeight) {
+  const totalWidth = count * RESULT_BUTTON_WIDTH + (count - 1) * RESULT_BUTTON_GAP;
+  const startX = canvasWidth / 2 - totalWidth / 2;
+  return {
+    x: startX + index * (RESULT_BUTTON_WIDTH + RESULT_BUTTON_GAP),
+    y: canvasHeight / 2 + RESULT_BUTTON_Y_OFFSET,
+    width: RESULT_BUTTON_WIDTH,
+    height: RESULT_BUTTON_HEIGHT,
+  };
+}
+
+// マッチ全体の決着画面。選択肢ボタンをbuttons配列（[{label, hovered}, ...]、Game.getMatchResultButtons()が
+// 文脈に応じて組み立てる）の順に横並びで表示する。通常対戦は4択（もう一度対戦/練習する/タイトルへ/CPUと戦う）、
+// ルーム対戦は2択（もう一度対戦/ルームに戻る）、観戦者は1択（観戦をやめる）になる
+export function drawMatchResult(ctx, canvasWidth, canvasHeight, winnerLabel, headerLabel = "K.O.", roundWins, buttons = []) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
@@ -309,8 +342,10 @@ export function drawMatchResult(ctx, canvasWidth, canvasHeight, winnerLabel, hea
     ctx.fillText(`${roundWins.player1} - ${roundWins.player2}`, canvasWidth / 2, canvasHeight / 2 + 65);
   }
 
-  ctx.font = "20px sans-serif";
-  ctx.fillText("Rキーでリスタート", canvasWidth / 2, canvasHeight / 2 + (roundWins ? 100 : 70));
+  buttons.forEach((button, index) => {
+    const rect = getResultButtonRect(index, buttons.length, canvasWidth, canvasHeight);
+    drawTitleButton(ctx, rect, button.label, button.hovered);
+  });
 }
 
 const HELP_LINES = [

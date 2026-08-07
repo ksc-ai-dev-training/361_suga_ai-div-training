@@ -22,6 +22,8 @@ export class NetworkSession {
     this.peer = null;
     this.connection = null;
     this.role = null; // "host" | "joiner"
+    this.ownsPeer = true; // close()時にpeer.destroy()まで行うか。attachToConnection()で共有Peerに乗る場合はfalseにする
+    this.spectatorConnections = []; // 観戦者への配信先（ルーム機能の対戦ホストが持つ。単体の1対1では常に空のまま）
     this.onHostReady = null; // (code) => void ホスト側: 部屋コードが決まった時点で呼ばれる
     this.onConnected = null; // () => void 相手との接続が確立した時点で呼ばれる
     this.onData = null; // (data) => void 相手からデータを受信するたびに呼ばれる
@@ -59,6 +61,29 @@ export class NetworkSession {
     });
   }
 
+  // ルーム機能用: 既にオープン済みのPeer/DataConnectionへ後付けでアタッチする（新規Peerを作らない）。
+  // ルームの対戦・観戦は、メンバーが部屋コネクションと共有している同一のPeerオブジェクト上に
+  // 追加のDataConnectionを張って行うため、host()/join()のようにPeerそのものを新規作成できない。
+  // ownsPeer: falseにすると、このセッションのclose()はconnection（と観戦者接続）だけを閉じ、
+  // 部屋コネクションが道連れでpeer.destroy()されないようにする
+  attachToConnection(peer, conn, role, { ownsPeer = false } = {}) {
+    this.role = role;
+    this.peer = peer;
+    this.ownsPeer = ownsPeer;
+    this._bindConnection(conn);
+  }
+
+  // 観戦者用のDataConnectionを配信先に追加する（対戦ホスト側のみ使用）。
+  // 観戦者側の接続が閉じたら自動的にリストから外す
+  addSpectator(conn) {
+    this.spectatorConnections.push(conn);
+    conn.on("close", () => this.removeSpectator(conn));
+  }
+
+  removeSpectator(conn) {
+    this.spectatorConnections = this.spectatorConnections.filter((c) => c !== conn);
+  }
+
   _bindConnection(conn) {
     this.connection = conn;
     conn.on("open", () => {
@@ -75,15 +100,26 @@ export class NetworkSession {
     });
   }
 
+  // 対戦相手（this.connection）に加え、観戦者（spectatorConnections）全員にも同じデータを配信する。
+  // 1人分の送信失敗（切断直後など）が他の配信を止めないよう、接続ごとに握りつぶす
   send(data) {
-    if (this.connection && this.connection.open) {
-      this.connection.send(data);
+    for (const conn of [this.connection, ...this.spectatorConnections]) {
+      if (!conn || !conn.open) continue;
+      try {
+        conn.send(data);
+      } catch {
+        // 送信失敗は無視する（次フレームの送信、またはclose検知に委ねる）
+      }
     }
   }
 
   close() {
     if (this.connection) this.connection.close();
-    if (this.peer) this.peer.destroy();
+    for (const conn of this.spectatorConnections) {
+      if (conn && conn.open) conn.close();
+    }
+    this.spectatorConnections = [];
+    if (this.peer && this.ownsPeer) this.peer.destroy();
     this.connection = null;
     this.peer = null;
   }

@@ -13,8 +13,13 @@
          通常のHTML要素として重ねて表示し、game.introPhase === "onlineLobby" の間だけ表示する（main.js側で制御） -->
     <div id="onlinePanel" class="hidden">
       <div id="onlineChoice">
+        <p class="onlineSectionLabel">1対1対戦（合言葉）</p>
         <button id="onlineHostBtn" type="button">部屋を作る（ホスト）</button>
-        <button id="onlineJoinBtn" type="button">部屋に参加する</button>
+        <button id="onlineJoinBtn" type="button">参加する</button>
+        <p class="onlineSectionLabel">ルーム対戦（最大8人・複数対戦・観戦・チャット）</p>
+        <input id="roomNameInput" type="text" class="onlineNameInput" maxlength="12" autocomplete="off" placeholder="表示名（省略可）">
+        <button id="roomCreateBtn" type="button">ルームを作る</button>
+        <button id="roomJoinBtn" type="button">ルームに参加する</button>
         <button id="onlineBackBtn" type="button" class="onlineBackBtn">戻る</button>
       </div>
 
@@ -29,6 +34,40 @@
         <input id="onlineJoinInput" type="text" maxlength="8" autocomplete="off" placeholder="例: AB12">
         <button id="onlineJoinSubmitBtn" type="button">参加する</button>
         <p id="onlineJoinStatus" class="onlineStatus"></p>
+      </div>
+
+      <div id="roomJoinPanel" class="hidden">
+        <p>ルームの合言葉を入力してください：</p>
+        <input id="roomJoinInput" type="text" maxlength="8" autocomplete="off" placeholder="例: AB12">
+        <button id="roomJoinSubmitBtn" type="button">参加する</button>
+        <p id="roomJoinStatus" class="onlineStatus"></p>
+      </div>
+    </div>
+
+    <!-- ルームのロビー画面。game.introPhase === "room" の間だけ表示する（main.js側で制御）。
+         メンバー一覧・対戦枠（最大2組）・チャットの内容はすべてJSから動的に描画する -->
+    <div id="roomPanel" class="hidden">
+      <div id="roomHeader">
+        <div>
+          <span>合言葉: </span><span id="roomCode" class="onlineCode">----</span>
+        </div>
+        <div id="roomMemberCount">人数: -/-</div>
+        <button id="roomLeaveBtn" type="button" class="onlineBackBtn">部屋を出る</button>
+      </div>
+      <p id="roomStatus" class="onlineStatus"></p>
+
+      <div id="roomBody">
+        <div id="roomSlots"></div>
+        <div id="roomSide">
+          <div id="roomMemberList"></div>
+          <div id="roomChat">
+            <div id="roomChatLog"></div>
+            <div id="roomChatInputRow">
+              <input id="roomChatInput" type="text" maxlength="200" autocomplete="off" placeholder="チャット">
+              <button id="roomChatSendBtn" type="button">送信</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

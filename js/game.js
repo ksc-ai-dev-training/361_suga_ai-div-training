@@ -21,10 +21,12 @@ import {
   drawIntroOverlay,
   drawTitleScreen,
   drawOnlineLobbyScreen,
+  drawRoomScreen,
   getTitleButtonRect,
   getPracticeButtonRect,
   getVersusButtonRect,
   getOnlineButtonRect,
+  getResultButtonRect,
   isPointInRect,
 } from "./ui.js";
 import { Projectile } from "./projectile.js";
@@ -185,8 +187,13 @@ export class Game {
     this.remoteInput = createRemoteInputSource(); // "online"モードのホスト側で、参加側から受信した入力を保持する
 
     // オンライン対戦（簡易版）関連
-    this.onlineRole = null; // "host" | "joiner" | null
+    this.onlineRole = null; // "host" | "joiner" | "spectator" | null
     this.network = null; // NetworkSessionインスタンス（js/network.js）。main.js側で接続確立後にセットされる
+    // "standalone"（タイトルのONLINEボタンからの単体1対1対戦） | "room"（ルーム機能内の対戦・観戦）。
+    // 対戦離脱時にタイトルへ戻るか部屋のロビーへ戻るかを、Gameがjs/room.jsの存在を知らないまま
+    // 判定できるようにするためのフラグ。room.js側がbeginOnlineMatch()前後でセットする
+    this.onlineContext = "standalone";
+    this.onReturnToRoom = null; // () => void。onlineContext==="room"のとき、部屋のロビーへ戻る際にroom.js側がセットして呼ばれる
   }
 
   setMousePosition(x, y) {
@@ -229,6 +236,46 @@ export class Game {
     this.startRound();
   }
 
+  // マッチ決着画面の「もう一度対戦」。オンライン対戦の参加側は自分でシミュレーションを行わないため、
+  // 直接restart()を呼ばずホストへリマッチ要求を送るだけにする（ホスト側でrestart()が呼ばれ、
+  // 次のスナップショットで結果が参加側にも反映される）
+  rematchAfterMatch() {
+    if (this.mode === "online" && this.onlineRole === "joiner") {
+      if (this.network) this.network.send({ type: "rematchRequest" });
+      return;
+    }
+    this.restart();
+  }
+
+  // マッチ決着画面の「練習する」「CPUと戦う」（通常対戦のみ表示される）。
+  // 進行中のオンライン対戦があれば抜けてから、指定モードで最初から対戦を始める
+  leaveToMode(mode) {
+    this.closeNetworkSilently();
+    if (this.returnToStandaloneOrRoom()) return;
+    this.roundWins = { player1: 0, player2: 0 };
+    this.currentRound = 1;
+    this.matchOver = false;
+    this.mode = mode;
+    this.startRound();
+  }
+
+  // マッチ決着画面の「タイトルへ」（通常対戦のみ表示される）。
+  // 進行中のオンライン対戦があれば抜けてからタイトル画面に戻る
+  goToTitleAfterMatch() {
+    this.closeNetworkSilently();
+    this.matchOver = false;
+    if (this.returnToStandaloneOrRoom()) return;
+    this.mode = "vs";
+    this.introPhase = "title";
+  }
+
+  // マッチ決着画面の「ルームに戻る」「観戦をやめる」（ルーム機能の対戦・観戦でのみ表示される）
+  returnToRoomAfterMatch() {
+    this.closeNetworkSilently();
+    this.matchOver = false;
+    if (this.onReturnToRoom) this.onReturnToRoom();
+  }
+
   // 1ラウンド分の状態（プレイヤー・弾・タイマー等）をリセットしてREADYから始める。
   // 獲得ラウンド数(roundWins)はリセットしない（restart()側で必要なときだけ別途リセットする）
   startRound() {
@@ -259,13 +306,58 @@ export class Game {
     this.mode = "vs";
   }
 
-  // canvas内座標(x, y)へのクリックを受け取る。タイトル画面のSTART/PRACTICE/VS 2P/ONLINEボタン判定にのみ使う
+  // canvas内座標(x, y)へのクリックを受け取る。タイトル画面のボタン、およびマッチ決着画面のボタン判定に使う
   handleClick(x, y) {
+    if (this.matchOver) {
+      this.handleMatchResultClick(x, y);
+      return;
+    }
     if (this.introPhase !== "title") return;
     if (isPointInRect(x, y, getTitleButtonRect(this.width, this.height))) this.startBattle("vs");
     else if (isPointInRect(x, y, getPracticeButtonRect(this.width, this.height))) this.startBattle("practice");
     else if (isPointInRect(x, y, getVersusButtonRect(this.width, this.height))) this.startBattle("2p");
     else if (isPointInRect(x, y, getOnlineButtonRect(this.width, this.height))) this.showOnlineLobby();
+  }
+
+  // マッチ決着画面のボタン構成を対戦の文脈に応じて返す（描画・クリック・ホバー判定の全てで共有する）。
+  // 通常対戦: もう一度対戦/練習する/タイトルへ/CPUと戦う の4択
+  // ルーム対戦のプレイヤー: もう一度対戦/ルームに戻る の2択
+  // ルーム対戦の観戦者: 観戦をやめる の1択
+  getMatchResultButtons() {
+    if (this.mode === "online" && this.onlineContext === "room") {
+      if (this.onlineRole === "spectator") {
+        return [{ key: "stopSpectating", label: "観戦をやめる" }];
+      }
+      return [
+        { key: "rematch", label: "もう一度対戦" },
+        { key: "returnToRoom", label: "ルームに戻る" },
+      ];
+    }
+    return [
+      { key: "rematch", label: "もう一度対戦" },
+      { key: "practice", label: "練習する" },
+      { key: "title", label: "タイトルへ" },
+      { key: "cpu", label: "CPUと戦う" },
+    ];
+  }
+
+  // マッチ決着画面のボタンのクリック判定。getMatchResultButtons()と同じ並び順でヒットテストする
+  handleMatchResultClick(x, y) {
+    const buttons = this.getMatchResultButtons();
+    for (let i = 0; i < buttons.length; i++) {
+      if (isPointInRect(x, y, getResultButtonRect(i, buttons.length, this.width, this.height))) {
+        this.handleMatchResultAction(buttons[i].key);
+        return;
+      }
+    }
+  }
+
+  handleMatchResultAction(key) {
+    if (key === "rematch") this.rematchAfterMatch();
+    else if (key === "practice") this.leaveToMode("practice");
+    else if (key === "title") this.goToTitleAfterMatch();
+    else if (key === "cpu") this.leaveToMode("vs");
+    else if (key === "returnToRoom" || key === "stopSpectating") this.returnToRoomAfterMatch();
   }
 
   // canvas内座標(x, y)がタイトル画面の各ボタン上にあるか（カーソル表示の切り替えに使う）
@@ -289,6 +381,13 @@ export class Game {
     return isPointInRect(x, y, getOnlineButtonRect(this.width, this.height));
   }
 
+  // マッチ決着画面のいずれかのボタン上にカーソルがあるか（マッチ全体の決着後のみ表示。main.jsのカーソル切り替えに使う）
+  isHoveringAnyMatchResultButton(x, y) {
+    if (!this.matchOver) return false;
+    const buttons = this.getMatchResultButtons();
+    return buttons.some((_, i) => isPointInRect(x, y, getResultButtonRect(i, buttons.length, this.width, this.height)));
+  }
+
   // ONLINEボタンが押されたときにオンライン接続画面へ進む。実際の接続操作はHTML側のパネル（main.js）で行う
   showOnlineLobby() {
     if (this.introPhase !== "title") return;
@@ -297,11 +396,34 @@ export class Game {
 
   // オンライン接続画面から（「戻る」ボタンなどで）タイトルへ戻る。進行中の接続があれば閉じる
   exitOnlineLobby() {
-    if (this.network) this.network.close();
-    this.network = null;
-    this.onlineRole = null;
+    this.closeNetworkSilently();
+    if (this.returnToStandaloneOrRoom()) return;
     this.mode = "vs";
     this.introPhase = "title";
+  }
+
+  // ルーム機能: 部屋の作成・参加が成立した直後に呼ばれる（main.js側、room.jsのコールバックから）
+  enterRoom() {
+    this.introPhase = "room";
+  }
+
+  // ルーム機能: ロビー画面の「部屋を出る」ボタンから呼ばれる。対戦中でないときのみ有効
+  exitRoom() {
+    if (this.introPhase !== "room") return;
+    this.introPhase = "title";
+    this.mode = "vs";
+  }
+
+  // 進行中のNetworkSessionを、自分から意図的に閉じる場合に使う。network.onDisconnectedを
+  // 先に外しておくことで、close()に伴って発火する切断イベントがhandleNetworkDisconnected()を
+  // 呼び直し、直後にこちらでセットする状態（leaveToMode等）を上書きしてしまうのを防ぐ
+  closeNetworkSilently() {
+    if (this.network) {
+      this.network.onDisconnected = null;
+      this.network.close();
+      this.network = null;
+    }
+    this.onlineRole = null;
   }
 
   // main.js側でPeerJSの接続が確立した直後に呼ばれる。role: "host" | "joiner"
@@ -319,16 +441,30 @@ export class Game {
     if (!msg) return;
     if (msg.type === "input" && this.onlineRole === "host") {
       this.remoteInput.applyState(msg.input);
-    } else if (msg.type === "state" && this.onlineRole === "joiner") {
+    } else if (msg.type === "state" && (this.onlineRole === "joiner" || this.onlineRole === "spectator")) {
       this.applyStateSnapshot(msg);
+    } else if (msg.type === "rematchRequest" && this.onlineRole === "host") {
+      if (this.matchOver) this.restart();
     }
   }
 
-  // 簡易版のため、対戦中に切断された場合は特別な復帰処理を行わずタイトルへ戻す
+  // 進行中のオンライン対戦・観戦があれば抜けて、通常のタイトル画面へ戻る代わりに
+  // ルームのロビーへ戻す（onlineContext==="room"のときのみ）。room.js側がonReturnToRoomを
+  // セットしていない・単体の1対1対戦（standalone）のときは何もせずfalseを返す
+  returnToStandaloneOrRoom() {
+    if (this.onlineContext === "room" && this.onReturnToRoom) {
+      this.onReturnToRoom();
+      return true;
+    }
+    return false;
+  }
+
+  // 簡易版のため、対戦中に切断された場合は特別な復帰処理を行わずタイトル（またはルーム）へ戻す
   handleNetworkDisconnected() {
     if (this.network) this.network.close();
     this.network = null;
     this.onlineRole = null;
+    if (this.returnToStandaloneOrRoom()) return;
     this.mode = "vs";
     this.introPhase = "title";
   }
@@ -410,6 +546,10 @@ export class Game {
       this.updateJoinerNetworking();
       return;
     }
+    if (this.mode === "online" && this.onlineRole === "spectator") {
+      this.updateSpectatorNetworking();
+      return;
+    }
 
     this.updateLocalSimulation(dt);
 
@@ -426,6 +566,12 @@ export class Game {
     if (this.network) {
       this.network.send({ type: "input", input: captureLocalActionState(P1_KEYS) });
     }
+  }
+
+  // 観戦者はシミュレーションも入力送信も行わない。ホストから届く状態スナップショットを
+  // 待って表示するだけの、完全に受動的なビューアとして振る舞う（ルーム機能専用）
+  updateSpectatorNetworking() {
+    if (isKeyJustPressed("Escape")) this.showHelp = !this.showHelp;
   }
 
   updateLocalSimulation(dt) {
@@ -822,6 +968,11 @@ export class Game {
       return;
     }
 
+    if (this.introPhase === "room") {
+      drawRoomScreen(ctx, this.width, this.height);
+      return;
+    }
+
     const isPractice = this.mode === "practice";
 
     drawStage(ctx, this.width, this.height, this.assets.background);
@@ -856,7 +1007,11 @@ export class Game {
 
     if (this.matchOver) {
       const headerLabel = this.endReason === "timeup" ? "TIME UP" : "K.O.";
-      drawMatchResult(ctx, this.width, this.height, this.getWinnerLabel(true), headerLabel, this.roundWins);
+      const buttons = this.getMatchResultButtons().map((button, index, arr) => ({
+        ...button,
+        hovered: isPointInRect(this.mouseX, this.mouseY, getResultButtonRect(index, arr.length, this.width, this.height)),
+      }));
+      drawMatchResult(ctx, this.width, this.height, this.getWinnerLabel(true), headerLabel, this.roundWins, buttons);
     }
 
     if (this.showHelp) drawHelpOverlay(ctx, this.width, this.height);
