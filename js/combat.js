@@ -68,6 +68,24 @@ export const SPECIAL_DATA = {
     isProjectile: true,
     projectile: { speed: 700, width: 70, height: 50, damage: 3000, offsetY: 80, color: "#ff6600", hitstun: framesToSeconds(40), blockstun: framesToSeconds(22) },
   },
+  // 昇龍拳（→↓↘+P）。飛び道具ではなく、本体に上方向まで届く打撃判定を持たせる対空技。
+  // 無敵時間（発生時に相手の攻撃を透過する性能）は未実装。当たり判定はrange/height/offsetYで
+  // 頭上をカバーするよう仮設定している。発生が早く高威力な反面、recoveryが長く外すと反撃されやすい、
+  // という昇龍拳系統の技の一般的な性格を仮値で再現している（参考フレームデータ表には記載がないため独自設定）。
+  // selfLaunchVelocityにより、攻撃開始と同時に自ら浮き上がる（通常ジャンプのJUMP_VELOCITY=1300より
+  // 高い1600px/秒を設定し、通常ジャンプより高く舞い上がるようにしている。仮値）
+  shoryuken: {
+    startup: framesToSeconds(5),
+    active: framesToSeconds(10),
+    recovery: framesToSeconds(32),
+    range: 150, // 仮値。対空として機能しやすいよう他の技よりかなり広め（強キックの85pxの倍近く）
+    height: 230, // 仮値。頭上からほぼ全身の高さまで広くカバーする縦長の判定
+    offsetY: -40, // 仮値。頭よりさらに上からカバーするよう引き上げた
+    damage: 2000,
+    hitstun: framesToSeconds(30),
+    blockstun: framesToSeconds(18),
+    selfLaunchVelocity: 1600,
+  },
 };
 
 export function rectsOverlap(a, b) {

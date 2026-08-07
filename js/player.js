@@ -1,10 +1,10 @@
 export const MOVE_SPEED = 250; // px/秒（前進）
 export const BACKWARD_MOVE_SPEED = 150; // px/秒（後ろ下がり）
-export const FORWARD_JUMP_SPEED = 500; // px/秒（前ジャンプの水平速度）
-export const BACKWARD_JUMP_SPEED = 300; // px/秒（後ろジャンプの水平速度）
+export const FORWARD_JUMP_SPEED = 350; // px/秒（前ジャンプの水平速度）
+export const BACKWARD_JUMP_SPEED = 210; // px/秒（後ろジャンプの水平速度）
 export const PUSH_SPEED = 100; // px/秒（相手を押すときの速度）
 export const GRAVITY = 2800; // px/秒^2（上昇中）
-export const FALL_GRAVITY = 3600; // px/秒^2（下降中、上昇より速く落ちる）
+export const FALL_GRAVITY = 2800; // px/秒^2（下降中）。現在はGRAVITYと同値で、上昇と対称に落ちる
 export const JUMP_VELOCITY = 1300; // px/秒（上向き初速）
 const HIT_FLASH_DURATION = 0.15; // 秒
 const GUARD_FLASH_DURATION = 0.15; // 秒
@@ -151,6 +151,14 @@ export class Player {
   startAttack(type, strength, data) {
     if (this.attack || this.isStunned || this.isJumpSquatting) return; // 攻撃中・硬直中・ジャンプのため中は新しい攻撃を受け付けない
     this.attack = { type, strength, data, phase: "startup", timer: 0, hasHit: false, projectileSpawned: false };
+
+    // 昇龍拳のように「攻撃開始と同時に自ら浮き上がる」技のためのオプション。
+    // 通常のジャンプと同じ重力(GRAVITY/FALL_GRAVITY)で自然に上昇→下降する
+    if (data.selfLaunchVelocity) {
+      this.vy = -data.selfLaunchVelocity;
+      this.jumpVx = 0; // 水平方向には飛ばない（その場で上下するだけ）
+      this.isGrounded = false;
+    }
   }
 
   updateAttack(dt) {
@@ -325,7 +333,7 @@ export class Player {
 
   // 攻撃中、その技専用のポーズ絵があれば返す。フェーズ内に複数コマある場合は、
   // そのフェーズの経過時間の割合に応じて何コマ目を表示するか決める（例: 波動拳の溜め動作）。
-  // recovery用の絵は用意しない前提で、activeの最終コマをそのまま流用する（無ければstartupの最終コマ）
+  // recovery専用の絵があればそれを使い、無ければactiveの最終コマをそのまま流用する（無ければstartupの最終コマ）
   getAttackSprite() {
     if (!this.attack) return null;
     const a = this.attack;
@@ -334,12 +342,14 @@ export class Player {
 
     const startupFrames = poseSet.startup || [];
     const activeFrames = poseSet.active || [];
+    const recoveryFrames = poseSet.recovery || [];
 
     if (a.phase === "startup" && startupFrames.length > 0) {
       const progress = Math.min(0.999, a.timer / a.data.startup);
       return startupFrames[Math.floor(progress * startupFrames.length)];
     }
 
+    if (a.phase === "recovery" && recoveryFrames.length > 0) return recoveryFrames[recoveryFrames.length - 1];
     if (activeFrames.length > 0) return activeFrames[activeFrames.length - 1];
     if (startupFrames.length > 0) return startupFrames[startupFrames.length - 1];
     return null;

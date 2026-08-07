@@ -2,7 +2,7 @@ import { Player, MOVE_SPEED, BACKWARD_MOVE_SPEED, PUSH_SPEED } from "./player.js
 import { GROUND_Y, drawStage } from "./stage.js";
 import { isKeyDown, isKeyJustPressed } from "./input.js";
 import { PUNCH_DATA, KICK_DATA, CROUCH_PUNCH_DATA, CROUCH_KICK_DATA, SPECIAL_DATA, GUARD_CHIP_RATIO, SUPER_GAUGE_GAIN_RATE, rectsOverlap } from "./combat.js";
-import { drawHud, drawMatchResult, drawRoundResult, drawHelpOverlay, drawIntroOverlay, drawTitleScreen, getTitleButtonRect, isPointInRect } from "./ui.js";
+import { drawHud, drawMatchResult, drawRoundResult, drawHelpOverlay, drawIntroOverlay, drawTitleScreen, getTitleButtonRect, getPracticeButtonRect, isPointInRect } from "./ui.js";
 import { Projectile } from "./projectile.js";
 import { CpuController } from "./ai.js";
 import {
@@ -10,6 +10,7 @@ import {
   recordDirection,
   hasQuarterCircleForward,
   hasDoubleQuarterCircleForward,
+  hasDragonPunchMotion,
   clearBuffer,
   DIR_NEUTRAL,
   DIR_DOWN,
@@ -42,13 +43,14 @@ export class Game {
     this.showHelp = false;
     this.roundWins = { player1: 0, player2: 0 }; // 各プレイヤーの獲得ラウンド数
     this.currentRound = 1;
-    // "title"（タイトル画面、STARTボタン待ち）→ "ready" → "fight" → "playing" → "roundEnd"
+    this.mode = "vs"; // "vs"（通常対戦）| "practice"（練習モード。CPU停止・タイマー無制限・HP自動回復）
+    // "title"（タイトル画面、START/PRACTICEボタン待ち）→ "ready" → "fight" → "playing" → "roundEnd"
     // （decided winnerの場合はplayingに戻らずmatchOver、そうでなければ次ラウンドの"ready"へ）の順に進む。
     // playingになるまで対戦は始まらない
     this.introPhase = "title";
     this.introTimer = 0;
     this.mouseX = -1;
-    this.mouseY = -1; // タイトル画面のSTARTボタンのホバー表示に使う（canvas内座標）
+    this.mouseY = -1; // タイトル画面のボタンのホバー表示に使う（canvas内座標）
   }
 
   setMousePosition(x, y) {
@@ -100,23 +102,37 @@ export class Game {
     this.introTimer = READY_DURATION;
   }
 
-  // タイトル画面のSTARTボタンが押された（またはEnterキーが押された）ときに対戦を始める
-  startBattle() {
+  // タイトル画面のSTART/PRACTICEボタンが押された（またはEnterキーが押された）ときに対戦を始める。
+  // mode: "vs"（通常対戦、CPU有効）| "practice"（練習モード、CPU停止・タイマー無制限・HP自動回復）
+  startBattle(mode = "vs") {
     if (this.introPhase !== "title") return;
+    this.mode = mode;
     this.introPhase = "ready";
     this.introTimer = READY_DURATION;
   }
 
-  // canvas内座標(x, y)へのクリックを受け取る。タイトル画面のSTARTボタン判定にのみ使う
-  handleClick(x, y) {
-    if (this.introPhase !== "title") return;
-    if (isPointInRect(x, y, getTitleButtonRect(this.width, this.height))) this.startBattle();
+  // 練習モード中にタイトル画面へ戻る
+  returnToTitle() {
+    this.introPhase = "title";
+    this.mode = "vs";
   }
 
-  // canvas内座標(x, y)がタイトル画面のSTARTボタン上にあるか（カーソル表示の切り替えに使う）
-  isHoveringTitleButton(x, y) {
+  // canvas内座標(x, y)へのクリックを受け取る。タイトル画面のSTART/PRACTICEボタン判定にのみ使う
+  handleClick(x, y) {
+    if (this.introPhase !== "title") return;
+    if (isPointInRect(x, y, getTitleButtonRect(this.width, this.height))) this.startBattle("vs");
+    else if (isPointInRect(x, y, getPracticeButtonRect(this.width, this.height))) this.startBattle("practice");
+  }
+
+  // canvas内座標(x, y)がタイトル画面のSTART/PRACTICEボタン上にあるか（カーソル表示の切り替えに使う）
+  isHoveringStartButton(x, y) {
     if (this.introPhase !== "title") return false;
     return isPointInRect(x, y, getTitleButtonRect(this.width, this.height));
+  }
+
+  isHoveringPracticeButton(x, y) {
+    if (this.introPhase !== "title") return false;
+    return isPointInRect(x, y, getPracticeButtonRect(this.width, this.height));
   }
 
   // 「READY」→「FIGHT!」→（ラウンド終了後）「roundEnd」の演出中はタイマーを進めず、入力も一切受け付けない
@@ -149,7 +165,12 @@ export class Game {
 
   update(dt) {
     if (this.introPhase === "title") {
-      if (isKeyJustPressed("Enter")) this.startBattle();
+      if (isKeyJustPressed("Enter")) this.startBattle("vs");
+      return;
+    }
+
+    if (this.mode === "practice" && isKeyJustPressed("Backspace")) {
+      this.returnToTitle();
       return;
     }
 
@@ -167,7 +188,9 @@ export class Game {
     }
 
     this.elapsed += dt;
-    this.timeRemaining = Math.max(0, this.timeRemaining - dt);
+    if (this.mode !== "practice") {
+      this.timeRemaining = Math.max(0, this.timeRemaining - dt);
+    }
 
     this.handleInput();
     this.handleJumpInput();
@@ -176,7 +199,7 @@ export class Game {
     this.updateCommandBuffer();
     this.handlePunchInput();
     this.handleKickInput();
-    this.cpu.update(dt);
+    if (this.mode !== "practice") this.cpu.update(dt); // 練習モードはCPUが何もしない（練習用のダミーにする）
 
     this.player1.update(dt, this.width);
     this.player2.update(dt, this.width);
@@ -189,7 +212,18 @@ export class Game {
     this.spawnPendingProjectiles();
     this.checkProjectileClashes();
     this.checkProjectileHits();
-    this.checkRoundEnd();
+
+    if (this.mode === "practice") {
+      this.updatePracticeHealing();
+    } else {
+      this.checkRoundEnd();
+    }
+  }
+
+  // 練習モードでは決着させず、HPが尽きたプレイヤーは即座に全回復させる
+  updatePracticeHealing() {
+    if (this.player1.hp <= 0) this.player1.hp = this.player1.maxHp;
+    if (this.player2.hp <= 0) this.player2.hp = this.player2.maxHp;
   }
 
   // Sキー押下中かつ接地中であればしゃがみ状態にする（空中ではしゃがめない）
@@ -400,13 +434,21 @@ export class Game {
     else if (isKeyJustPressed("KeyO")) this.tryPunchOrSpecial("heavy", data.heavy);
   }
 
-  // パンチ入力の直前に波動拳／スーパーアーツのコマンドが成立していればそちらを、
-  // そうでなければ通常のパンチを出す。どちらも地上限定・同時に自分の弾は1発まで。
+  // パンチ入力の直前に昇龍拳／波動拳／スーパーアーツのコマンドが成立していればそちらを、
+  // そうでなければ通常のパンチを出す。波動拳・SAは地上限定・同時に自分の弾は1発までかつ非しゃがみ時のみ。
+  // 昇龍拳（→↓↘）はコマンドの完成時点で必然的にSキーを押している（しゃがみ入力中）ため、
+  // 波動拳・SAとは異なりisCrouchingを問わず成立させる。
   // スーパーアーツ（↓↘→↓↘→）は波動拳（↓↘→）の上位互換の入力なので先にチェックする。
   // SAはSUPERゲージが満タンでないと出せず、コマンドが成立していても波動拳になる
   tryPunchOrSpecial(strength, punchData) {
     const p1 = this.player1;
     if (p1.attack) return;
+
+    if (p1.isGrounded && hasDragonPunchMotion(this.commandBuffer1, this.elapsed)) {
+      clearBuffer(this.commandBuffer1);
+      p1.startAttack("special", "shoryuken", SPECIAL_DATA.shoryuken);
+      return;
+    }
 
     const canFireProjectile = p1.isGrounded && !p1.isCrouching && !this.hasActiveProjectile(p1);
 
@@ -462,19 +504,38 @@ export class Game {
     ctx.clearRect(0, 0, this.width, this.height);
 
     if (this.introPhase === "title") {
-      const isHovered = this.isHoveringTitleButton(this.mouseX, this.mouseY);
-      drawTitleScreen(ctx, this.width, this.height, this.assets.titleLogo, isHovered);
+      const isStartHovered = this.isHoveringStartButton(this.mouseX, this.mouseY);
+      const isPracticeHovered = this.isHoveringPracticeButton(this.mouseX, this.mouseY);
+      drawTitleScreen(ctx, this.width, this.height, this.assets.titleLogo, isStartHovered, isPracticeHovered);
       return;
     }
+
+    const isPractice = this.mode === "practice";
 
     drawStage(ctx, this.width, this.height, this.assets.background);
     this.player1.draw(ctx);
     this.player2.draw(ctx);
     for (const projectile of this.projectiles) projectile.draw(ctx);
-    drawHud(ctx, this.player1, this.player2, this.width, this.height, this.timeRemaining, this.roundWins, ROUNDS_TO_WIN);
+    drawHud(
+      ctx,
+      this.player1,
+      this.player2,
+      this.width,
+      this.height,
+      isPractice ? null : this.timeRemaining,
+      isPractice ? null : this.roundWins,
+      isPractice ? null : ROUNDS_TO_WIN
+    );
+
+    if (isPractice) {
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.font = "16px sans-serif";
+      ctx.fillText("練習モード（Backspaceキーでタイトルへ）", this.width / 2, this.height - 12);
+    }
 
     if (this.introPhase === "ready" || this.introPhase === "fight") {
-      drawIntroOverlay(ctx, this.width, this.height, this.introPhase, this.currentRound);
+      drawIntroOverlay(ctx, this.width, this.height, this.introPhase, isPractice ? null : this.currentRound);
     } else if (this.introPhase === "roundEnd") {
       const winnerLabel = this.winner === this.player1 ? "PLAYER WINS" : this.winner === this.player2 ? "CPU WINS" : "DRAW";
       const headerLabel = this.endReason === "timeup" ? "TIME UP" : "K.O.";

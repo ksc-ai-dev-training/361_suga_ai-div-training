@@ -1,11 +1,11 @@
 export const GROUND_Y = 590;
 
-// backgroundImage が渡されればそれを全面に描画し、無ければ元の空色で塗りつぶす
+// backgroundImage が渡されればそれを全面に描画し、無ければ黒で塗りつぶす
 export function drawStage(ctx, canvasWidth, canvasHeight, backgroundImage) {
   if (backgroundImage) {
     drawImageCover(ctx, backgroundImage, canvasWidth, canvasHeight);
   } else {
-    ctx.fillStyle = "#87ceeb";
+    ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   }
 

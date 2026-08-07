@@ -15,9 +15,9 @@ const MAX_PHASE_FRAMES = 6; // 1フェーズあたり最大何コマまで試す
 const ATTACK_STRENGTHS_BY_TYPE = {
   punch: ["light", "medium", "heavy"],
   kick: ["light", "medium", "heavy"],
-  special: ["hadouken", "hadoukenSuper"],
+  special: ["hadouken", "hadoukenSuper", "shoryuken"],
 };
-const ATTACK_PHASES = ["startup", "active"]; // recoveryは専用画像を用意せず、activeの最終コマを流用する
+const ATTACK_PHASES = ["startup", "active", "recovery"]; // recoveryは専用画像が無ければactiveの最終コマを流用する
 const MAX_JUMP_PHASE_FRAMES = 4; // ジャンプの各フェーズ(anticipation/rise/apex/fall)で最大何コマまで試すか
 const JUMP_PHASES = ["anticipation", "rise", "apex", "fall"];
 const MAX_HADOUKEN_FRAMES = 4; // hadouken1.png 〜 hadouken4.png まで試す（弾自体のアニメコマ。プレイヤー非依存の共通アセット）

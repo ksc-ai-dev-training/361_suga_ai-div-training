@@ -27,7 +27,7 @@ loadAssets().then((assets) => {
   const game = new Game(ctx, canvas.width, canvas.height, assets);
   let lastTime = performance.now();
 
-  // タイトル画面のSTARTボタン用（クリックで開始・ホバー時はカーソルをpointerに）
+  // タイトル画面のSTART/PRACTICEボタン用（クリックで開始・ホバー時はカーソルをpointerに）
   canvas.addEventListener("click", (e) => {
     const { x, y } = toCanvasCoords(e);
     game.handleClick(x, y);
@@ -35,7 +35,8 @@ loadAssets().then((assets) => {
   canvas.addEventListener("mousemove", (e) => {
     const { x, y } = toCanvasCoords(e);
     game.setMousePosition(x, y);
-    canvas.style.cursor = game.isHoveringTitleButton(x, y) ? "pointer" : "default";
+    const isHovered = game.isHoveringStartButton(x, y) || game.isHoveringPracticeButton(x, y);
+    canvas.style.cursor = isHovered ? "pointer" : "default";
   });
 
   function loop(now) {

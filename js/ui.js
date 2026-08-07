@@ -4,13 +4,24 @@ const BAR_WIDTH = 380;
 const BAR_HEIGHT = 24;
 const SUPER_BAR_WIDTH = 260;
 const SUPER_BAR_HEIGHT = 16;
-const TITLE_BUTTON_WIDTH = 260;
+const TITLE_BUTTON_WIDTH = 220;
 const TITLE_BUTTON_HEIGHT = 64;
+const TITLE_BUTTON_GAP = 30;
 
-// タイトル画面のSTARTボタンの矩形（描画・クリック判定の両方で共有する）
+// タイトル画面のSTARTボタンの矩形（描画・クリック判定の両方で共有する）。PRACTICEボタンの左に並ぶ
 export function getTitleButtonRect(canvasWidth, canvasHeight) {
   return {
-    x: canvasWidth / 2 - TITLE_BUTTON_WIDTH / 2,
+    x: canvasWidth / 2 - TITLE_BUTTON_GAP / 2 - TITLE_BUTTON_WIDTH,
+    y: canvasHeight * 0.68,
+    width: TITLE_BUTTON_WIDTH,
+    height: TITLE_BUTTON_HEIGHT,
+  };
+}
+
+// タイトル画面のPRACTICEボタンの矩形。STARTボタンの右に並ぶ
+export function getPracticeButtonRect(canvasWidth, canvasHeight) {
+  return {
+    x: canvasWidth / 2 + TITLE_BUTTON_GAP / 2,
     y: canvasHeight * 0.68,
     width: TITLE_BUTTON_WIDTH,
     height: TITLE_BUTTON_HEIGHT,
@@ -21,8 +32,8 @@ export function isPointInRect(x, y, rect) {
   return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 }
 
-// 対戦開始前のタイトル画面。ロゴ画像とSTARTボタンを表示する
-export function drawTitleScreen(ctx, canvasWidth, canvasHeight, logoImage, isButtonHovered) {
+// 対戦開始前のタイトル画面。ロゴ画像とSTART/PRACTICEボタンを表示する
+export function drawTitleScreen(ctx, canvasWidth, canvasHeight, logoImage, isStartHovered, isPracticeHovered) {
   const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
   gradient.addColorStop(0, "#1a1a3a");
   gradient.addColorStop(1, "#3a1a2a");
@@ -53,20 +64,26 @@ export function drawTitleScreen(ctx, canvasWidth, canvasHeight, logoImage, isBut
   ctx.font = "20px sans-serif";
   ctx.fillText("PLAYER vs CPU", canvasWidth / 2, canvasHeight * 0.6);
 
-  const btn = getTitleButtonRect(canvasWidth, canvasHeight);
-  ctx.fillStyle = isButtonHovered ? "#ffe27a" : "#ffcc33";
+  drawTitleButton(ctx, getTitleButtonRect(canvasWidth, canvasHeight), "START", isStartHovered);
+  drawTitleButton(ctx, getPracticeButtonRect(canvasWidth, canvasHeight), "PRACTICE", isPracticeHovered);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "16px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("クリック または Enterキーで対戦開始", canvasWidth / 2, canvasHeight * 0.68 + TITLE_BUTTON_HEIGHT + 32);
+}
+
+function drawTitleButton(ctx, btn, label, isHovered) {
+  ctx.fillStyle = isHovered ? "#ffe27a" : "#ffcc33";
   ctx.fillRect(btn.x, btn.y, btn.width, btn.height);
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 3;
   ctx.strokeRect(btn.x, btn.y, btn.width, btn.height);
 
   ctx.fillStyle = "#1a1a3a";
-  ctx.font = "bold 28px sans-serif";
-  ctx.fillText("START", btn.x + btn.width / 2, btn.y + btn.height / 2 + 10);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "16px sans-serif";
-  ctx.fillText("クリック または Enterキーで開始", canvasWidth / 2, btn.y + btn.height + 32);
+  ctx.textAlign = "center";
+  ctx.font = "bold 24px sans-serif";
+  ctx.fillText(label, btn.x + btn.width / 2, btn.y + btn.height / 2 + 9);
 }
 
 // HP・SUPERゲージ・ポートレート・名前・タイマー・獲得ラウンド数をまとめて描画する。
@@ -155,12 +172,13 @@ function drawHealthBar(ctx, x, y, player, reversed) {
   ctx.strokeRect(x, y, BAR_WIDTH, BAR_HEIGHT);
 }
 
+// timeRemainingがnull（練習モードなど、タイマー無し）のときは"∞"を表示する
 function drawTimer(ctx, canvasWidth, timeRemaining) {
-  const seconds = Math.ceil(timeRemaining);
+  const label = timeRemaining === null ? "∞" : String(Math.ceil(timeRemaining)).padStart(2, "0");
   ctx.fillStyle = "#ffcc33";
   ctx.textAlign = "center";
   ctx.font = "bold 48px sans-serif";
-  ctx.fillText(String(seconds).padStart(2, "0"), canvasWidth / 2, 60);
+  ctx.fillText(label, canvasWidth / 2, 60);
 }
 
 // reversed: 2P側（右側）はゲージ・ラベルの並びを左右反転する
@@ -269,6 +287,7 @@ const HELP_LINES = [
   "弱 / 中 / 強キック: J / K / L",
   "波動拳: ↓ ↘ → の後にパンチ",
   "スーパーアーツ: 波動拳コマンドを2回連続の後にパンチ（SUPERゲージ満タン時のみ）",
+  "昇龍拳: → ↓ ↘ の後にパンチ",
   "リスタート（決着後のみ）: R",
 ];
 
