@@ -1,9 +1,9 @@
 // 波動拳・スーパーアーツ・昇龍拳などのコマンド入力
-// （↓↘→ / ↓↘→↓↘→ / →↓↘ + ボタン）を判定するための方向入力バッファ
+// （↓↘→ / ↓↘→↓→ / →↓↘ + ボタン）を判定するための方向入力バッファ
 
 const RETENTION = 1.2; // 秒。バッファに保持しておく最大期間（最も長いコマンド判定に合わせる）
 const SIMPLE_WINDOW = 0.5; // 秒。波動拳（↓↘→）の入力猶予
-const SUPER_WINDOW = 1.0; // 秒。スーパーアーツ（↓↘→↓↘→）の入力猶予
+const SUPER_WINDOW = 1.0; // 秒。スーパーアーツ（↓↘→↓→）の入力猶予
 const DRAGON_PUNCH_WINDOW = 0.5; // 秒。昇龍拳（→↓↘）の入力猶予（仮値）
 
 // 方向コード: 0=ニュートラル, 1=↓, 2=↘（↓+前）, 3=→（前）
@@ -13,6 +13,7 @@ export const DIR_DOWN_FORWARD = 2;
 export const DIR_FORWARD = 3;
 
 const QCF = [DIR_DOWN, DIR_DOWN_FORWARD, DIR_FORWARD];
+const SUPER_MOTION = [DIR_DOWN, DIR_DOWN_FORWARD, DIR_FORWARD, DIR_DOWN, DIR_FORWARD]; // ↓↘→↓→（スーパーアーツコマンド）
 const DRAGON_PUNCH = [DIR_FORWARD, DIR_DOWN, DIR_DOWN_FORWARD];
 
 export function createCommandBuffer() {
@@ -48,9 +49,9 @@ export function hasQuarterCircleForward(buffer, now) {
   return matchesSequence(buffer, now, SIMPLE_WINDOW, QCF);
 }
 
-// ↓ → ↘ → → を2回連続（スーパーアーツコマンド）
-export function hasDoubleQuarterCircleForward(buffer, now) {
-  return matchesSequence(buffer, now, SUPER_WINDOW, [...QCF, ...QCF]);
+// ↓ ↘ → ↓ →（スーパーアーツコマンド）
+export function hasSuperArtsMotion(buffer, now) {
+  return matchesSequence(buffer, now, SUPER_WINDOW, SUPER_MOTION);
 }
 
 // → ↓ ↘（昇龍拳コマンド）

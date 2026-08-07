@@ -4,36 +4,49 @@ const BAR_WIDTH = 380;
 const BAR_HEIGHT = 24;
 const SUPER_BAR_WIDTH = 260;
 const SUPER_BAR_HEIGHT = 16;
-const TITLE_BUTTON_WIDTH = 220;
+const TITLE_BUTTON_WIDTH = 160;
 const TITLE_BUTTON_HEIGHT = 64;
-const TITLE_BUTTON_GAP = 30;
+const TITLE_BUTTON_GAP = 16;
+const TITLE_BUTTON_COUNT = 4;
+const TITLE_BUTTON_Y_RATIO = 0.68;
 
-// タイトル画面のSTARTボタンの矩形（描画・クリック判定の両方で共有する）。PRACTICEボタンの左に並ぶ
-export function getTitleButtonRect(canvasWidth, canvasHeight) {
+// タイトル画面のボタン（START/PRACTICE/VS 2P/ONLINE）の矩形を、横並びの位置(0,1,2,3)から計算する。
+// 描画・クリック判定の両方で共有する
+function getTitleButtonRectAt(index, canvasWidth, canvasHeight) {
+  const totalWidth = TITLE_BUTTON_COUNT * TITLE_BUTTON_WIDTH + (TITLE_BUTTON_COUNT - 1) * TITLE_BUTTON_GAP;
+  const startX = canvasWidth / 2 - totalWidth / 2;
   return {
-    x: canvasWidth / 2 - TITLE_BUTTON_GAP / 2 - TITLE_BUTTON_WIDTH,
-    y: canvasHeight * 0.68,
+    x: startX + index * (TITLE_BUTTON_WIDTH + TITLE_BUTTON_GAP),
+    y: canvasHeight * TITLE_BUTTON_Y_RATIO,
     width: TITLE_BUTTON_WIDTH,
     height: TITLE_BUTTON_HEIGHT,
   };
 }
 
-// タイトル画面のPRACTICEボタンの矩形。STARTボタンの右に並ぶ
+export function getTitleButtonRect(canvasWidth, canvasHeight) {
+  return getTitleButtonRectAt(0, canvasWidth, canvasHeight);
+}
+
 export function getPracticeButtonRect(canvasWidth, canvasHeight) {
-  return {
-    x: canvasWidth / 2 + TITLE_BUTTON_GAP / 2,
-    y: canvasHeight * 0.68,
-    width: TITLE_BUTTON_WIDTH,
-    height: TITLE_BUTTON_HEIGHT,
-  };
+  return getTitleButtonRectAt(1, canvasWidth, canvasHeight);
+}
+
+// タイトル画面のVS 2Pボタンの矩形（2人対戦モード開始用）。PRACTICEボタンの右に並ぶ
+export function getVersusButtonRect(canvasWidth, canvasHeight) {
+  return getTitleButtonRectAt(2, canvasWidth, canvasHeight);
+}
+
+// タイトル画面のONLINEボタンの矩形（ネットワーク対戦の接続画面へ進む）。VS 2Pボタンの右に並ぶ
+export function getOnlineButtonRect(canvasWidth, canvasHeight) {
+  return getTitleButtonRectAt(3, canvasWidth, canvasHeight);
 }
 
 export function isPointInRect(x, y, rect) {
   return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 }
 
-// 対戦開始前のタイトル画面。ロゴ画像とSTART/PRACTICEボタンを表示する
-export function drawTitleScreen(ctx, canvasWidth, canvasHeight, logoImage, isStartHovered, isPracticeHovered) {
+// 対戦開始前のタイトル画面。ロゴ画像とSTART/PRACTICE/VS 2P/ONLINEボタンを表示する
+export function drawTitleScreen(ctx, canvasWidth, canvasHeight, logoImage, isStartHovered, isPracticeHovered, isVersusHovered, isOnlineHovered) {
   const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
   gradient.addColorStop(0, "#1a1a3a");
   gradient.addColorStop(1, "#3a1a2a");
@@ -62,15 +75,17 @@ export function drawTitleScreen(ctx, canvasWidth, canvasHeight, logoImage, isSta
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.font = "20px sans-serif";
-  ctx.fillText("PLAYER vs CPU", canvasWidth / 2, canvasHeight * 0.6);
+  ctx.fillText("モードを選んでください", canvasWidth / 2, canvasHeight * 0.6);
 
   drawTitleButton(ctx, getTitleButtonRect(canvasWidth, canvasHeight), "START", isStartHovered);
   drawTitleButton(ctx, getPracticeButtonRect(canvasWidth, canvasHeight), "PRACTICE", isPracticeHovered);
+  drawTitleButton(ctx, getVersusButtonRect(canvasWidth, canvasHeight), "VS 2P", isVersusHovered);
+  drawTitleButton(ctx, getOnlineButtonRect(canvasWidth, canvasHeight), "ONLINE", isOnlineHovered);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "16px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("クリック または Enterキーで対戦開始", canvasWidth / 2, canvasHeight * 0.68 + TITLE_BUTTON_HEIGHT + 32);
+  ctx.fillText("クリックで開始（STARTのみEnterキーでも可）", canvasWidth / 2, canvasHeight * TITLE_BUTTON_Y_RATIO + TITLE_BUTTON_HEIGHT + 32);
 }
 
 function drawTitleButton(ctx, btn, label, isHovered) {
@@ -86,11 +101,31 @@ function drawTitleButton(ctx, btn, label, isHovered) {
   ctx.fillText(label, btn.x + btn.width / 2, btn.y + btn.height / 2 + 9);
 }
 
+// オンライン対戦の接続待ち画面（背景のみ）。実際のホスト/参加操作はcanvasの上に重ねたHTMLパネル
+// （index.htmlの#onlinePanel、main.jsで表示切り替え）で行うため、ここでは背景と簡単な案内のみ描画する
+export function drawOnlineLobbyScreen(ctx, canvasWidth, canvasHeight) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+  gradient.addColorStop(0, "#1a1a3a");
+  gradient.addColorStop(1, "#3a1a2a");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  ctx.fillStyle = "#ffcc33";
+  ctx.textAlign = "center";
+  ctx.font = "bold 40px sans-serif";
+  ctx.fillText("オンライン対戦", canvasWidth / 2, canvasHeight * 0.3);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "18px sans-serif";
+  ctx.fillText("画面下のパネルから「部屋を作る」または「参加する」を選んでください", canvasWidth / 2, canvasHeight * 0.4);
+}
+
 // HP・SUPERゲージ・ポートレート・名前・タイマー・獲得ラウンド数をまとめて描画する。
-// roundWins/roundsToWinを渡さなければラウンドの丸印は表示しない（省略可能）
-export function drawHud(ctx, player1, player2, canvasWidth, canvasHeight, timeRemaining, roundWins, roundsToWin) {
+// roundWins/roundsToWinを渡さなければラウンドの丸印は表示しない（省略可能）。
+// player2Name: 2P側の表示名（通常対戦時は"CPU"、VS 2Pモードでは"2P"などを渡す）
+export function drawHud(ctx, player1, player2, canvasWidth, canvasHeight, timeRemaining, roundWins, roundsToWin, player2Name = "CPU") {
   drawSidePanel(ctx, player1, "1P", "PLAYER", canvasWidth, false, roundWins?.player1, roundsToWin);
-  drawSidePanel(ctx, player2, "2P", "CPU", canvasWidth, true, roundWins?.player2, roundsToWin);
+  drawSidePanel(ctx, player2, "2P", player2Name, canvasWidth, true, roundWins?.player2, roundsToWin);
   drawTimer(ctx, canvasWidth, timeRemaining);
   drawSuperGauge(ctx, player1, canvasWidth, canvasHeight, false);
   drawSuperGauge(ctx, player2, canvasWidth, canvasHeight, true);
@@ -286,9 +321,12 @@ const HELP_LINES = [
   "弱 / 中 / 強パンチ: U / I / O",
   "弱 / 中 / 強キック: J / K / L",
   "波動拳: ↓ ↘ → の後にパンチ",
-  "スーパーアーツ: 波動拳コマンドを2回連続の後にパンチ（SUPERゲージ満タン時のみ）",
+  "スーパーアーツ: ↓ ↘ → ↓ → の後にパンチ（SUPERゲージ満タン時のみ）",
   "昇龍拳: → ↓ ↘ の後にパンチ",
   "リスタート（決着後のみ）: R",
+  "――― VS 2Pモードの2P操作 ―――",
+  "移動: ← / →　ジャンプ: ↑（同時押しで前・後ジャンプ）　しゃがみ: ↓",
+  "弱 / 中 / 強パンチ: テンキー1 / 2 / 3　弱 / 中 / 強キック: テンキー4 / 5 / 6",
 ];
 
 export function drawHelpOverlay(ctx, canvasWidth, canvasHeight) {

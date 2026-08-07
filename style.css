@@ -8,7 +8,86 @@ body {
   background: #000000;
 }
 
+#gameContainer {
+  position: relative;
+  line-height: 0; /* canvas下の余白を消し、onlinePanelの位置合わせを崩さないようにする */
+}
+
 #gameCanvas {
   background: #000000;
   display: block;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* オンライン対戦（簡易版）の接続パネル。canvasの上に重ねて表示する */
+#onlinePanel {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translate(-50%, -50%);
+  width: 420px;
+  max-width: 80%;
+  padding: 24px 28px;
+  box-sizing: border-box;
+  background: rgba(20, 20, 40, 0.9);
+  border: 2px solid #ffcc33;
+  border-radius: 8px;
+  color: #ffffff;
+  font-family: sans-serif;
+  text-align: center;
+}
+
+#onlinePanel button {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  padding: 12px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #1a1a3a;
+  background: #ffcc33;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#onlinePanel button:hover {
+  background: #ffe27a;
+}
+
+#onlinePanel .onlineBackBtn {
+  color: #ffffff;
+  background: #444466;
+}
+
+#onlinePanel .onlineBackBtn:hover {
+  background: #5a5a80;
+}
+
+#onlinePanel input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  margin: 8px 0;
+  font-size: 20px;
+  text-align: center;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+
+.onlineCode {
+  font-size: 36px;
+  font-weight: bold;
+  letter-spacing: 8px;
+  color: #ffcc33;
+  margin: 12px 0;
+}
+
+.onlineStatus {
+  min-height: 1.2em;
+  font-size: 14px;
+  color: #cccccc;
 }

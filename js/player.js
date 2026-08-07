@@ -17,6 +17,14 @@ const WALK_FRAME_DISTANCE = 30; // px。この距離進むごとに次の歩行�
 const CROUCH_TRANSITION_DURATION = 0.15; // 秒。立ち⇔しゃがみの遷移コマを最後まで再生するのにかかる時間（仮値）
 const JUMP_SQUAT_DURATION = 4 / 60; // 秒（4F、仮値）。ジャンプ入力からしゃがみ込み、実際に浮き上がるまでの「ため」時間
 const JUMP_APEX_VY_THRESHOLD = 200; // px/秒。上下速度がこの範囲に収まっていればジャンプの頂点(apex)ポーズとみなす（仮値）
+const KNOCKDOWN_LAUNCHED_DURATION = 0.35; // 秒（仮値）。ダウンの「吹き飛び」局面の長さ
+const KNOCKDOWN_LYING_DURATION = 1.0; // 秒（仮値）。「倒れている」局面の長さ
+const DOWN_LYING_SCALE = 1.2; // 仮値。倒れているポーズ絵は他のポーズより少し大きく表示する
+const DOWN_LYING_Y_OFFSET = 66; // px（仮値）。画像下部の余白（実測で画像高さの約25%）の分だけ下にずらして、
+// 足元アンカーに対して浮いて見えないようにする（DOWN_LYING_SCALE適用後の表示高さ基準で計算した値）
+const KO_SCALE = 0.6; // 仮値。K.O.絵は横に長く実寸が大きいため、他のポーズより縮小して表示する
+const KNOCKBACK_INITIAL_SPEED = 500; // px/秒（仮値）。ヒット時に弾き飛ばされる初速
+const KNOCKBACK_FRICTION = 2500; // px/秒^2（仮値）。ノックバック速度がこの割合で減衰し、やがて0で止まる
 
 export class Player {
   constructor({
@@ -32,6 +40,9 @@ export class Player {
     hitSprite = null,
     jumpSprites = {},
     attackSprites = {},
+    downLaunchedSprite = null,
+    downLyingSprite = null,
+    koSprite = null,
   }) {
     this.width = 100;
     this.height = STAND_HEIGHT;
@@ -49,11 +60,15 @@ export class Player {
     this.hitSprite = hitSprite; // 被弾（ヒット反応）絵（右向き基準）。無ければ通常のポーズに赤い色が乗るだけになる
     this.jumpSprites = jumpSprites; // { anticipation: [...], rise: [...], apex: [...], fall: [...] }。無ければ従来通り立ち絵/しゃがみ絵のまま
     this.attackSprites = attackSprites; // { "punch_heavy": { startup, active }, ... }。無ければ立ち絵のまま攻撃する
+    this.downLaunchedSprite = downLaunchedSprite; // ダウン絵（吹き飛び中）。無ければ被弾絵/通常のポーズで代用する
+    this.downLyingSprite = downLyingSprite; // ダウン絵（倒れている間）。無ければ被弾絵/通常のポーズで代用する
+    this.koSprite = koSprite; // K.O.絵。無ければダウン絵/被弾絵/通常のポーズで代用する
     this.isWalking = false;
     this.walkCycleDistance = 0; // 歩行コマ切り替え用に、歩いた距離を積算する
     this.vx = 0;
     this.vy = 0;
     this.jumpVx = 0; // 踏み切った瞬間に固定される空中の横移動速度
+    this.knockbackVx = 0; // ヒットで弾き飛ばされている間の横移動速度。時間経過で0に減衰する
     this.jumpSquatTimer = 0; // ジャンプ入力後、実際に浮き上がるまでの「ため」の残り時間
     this.pendingJumpDirection = 0; // ため中に保持しておく踏み切り方向（-1/0/1）
     this.pendingJumpFacing = 1; // ジャンプ入力を受けた瞬間のfacing。ため中にfacingが変わっても前後判定がぶれないようにする
@@ -65,6 +80,7 @@ export class Player {
     this.guardFlashTimer = 0;
     this.hitstunTimer = 0; // ヒット硬直。この間は一切の行動ができない
     this.blockstunTimer = 0; // ガード硬直。この間は一切の行動ができない（ガード自体は継続できる）
+    this.downTimer = 0; // ダウン状態の残り時間。この間は一切の行動ができない（ヒット硬直・ガード硬直とは別枠）
     this.maxHp = MAX_HP;
     this.hp = MAX_HP;
     this.maxSuperGauge = MAX_SUPER_GAUGE;
@@ -72,7 +88,23 @@ export class Player {
   }
 
   get isStunned() {
-    return this.hitstunTimer > 0 || this.blockstunTimer > 0;
+    return this.hitstunTimer > 0 || this.blockstunTimer > 0 || this.downTimer > 0;
+  }
+
+  // ダウン状態（吹き飛び〜倒れている間）かどうか
+  get isDowned() {
+    return this.downTimer > 0;
+  }
+
+  // ダウン状態のうち、まだ「吹き飛び」局面（KNOCKDOWN_LYING_DURATION超）かどうか。
+  // falseなら「倒れている」局面
+  get isKnockdownLaunched() {
+    return this.downTimer > KNOCKDOWN_LYING_DURATION;
+  }
+
+  // HPが尽きて決着した（K.O.）かどうか。次のラウンド開始でhpが全回復するまでtrueのまま
+  get isKO() {
+    return this.hp <= 0;
   }
 
   // ガード構え（後方入力）ではなく、実際に攻撃を防いだ瞬間（ガード硬直中）かどうか。
@@ -114,9 +146,25 @@ export class Player {
     this.attack = null;
   }
 
+  // ダウンを奪う技のヒット時に適用。通常のヒット硬直の代わりに使う
+  // （KNOCKDOWN_LAUNCHED_DURATION秒の吹き飛び→KNOCKDOWN_LYING_DURATION秒の倒れ、の順に自動で進む）
+  applyKnockdown() {
+    this.downTimer = KNOCKDOWN_LAUNCHED_DURATION + KNOCKDOWN_LYING_DURATION;
+    this.hitstunTimer = 0;
+    this.blockstunTimer = 0;
+    this.attack = null;
+  }
+
   // ガードに成功した側に適用
   applyBlockstun(duration) {
     this.blockstunTimer = duration;
+  }
+
+  // ガードしていないヒットを食らった側に適用。direction: -1(左) / 1(右) … 弾き飛ばされる向き
+  // （攻撃側と反対方向）。hitstun・ダウンなど行動不能タイマーとは別枠で、それらの間も含めて
+  // 常に働く（update()内で無条件に処理される）ため、硬直中でも自然にスライドして見える
+  applyKnockback(direction) {
+    this.knockbackVx = direction * KNOCKBACK_INITIAL_SPEED;
   }
 
   // direction: -1(左) / 0(入力なし) / 1(右) … 踏み切った瞬間の入力方向。
@@ -234,6 +282,16 @@ export class Player {
       this.x = Math.max(0, Math.min(canvasWidth - this.width, this.x));
     }
 
+    // ノックバック（ヒットで弾き飛ばされている間の横滑り）。硬直中でも滑らせたいので
+    // isStunned等の判定に関係なく常に処理し、摩擦(KNOCKBACK_FRICTION)で徐々に0へ減衰させる
+    if (this.knockbackVx !== 0) {
+      this.x += this.knockbackVx * dt;
+      this.x = Math.max(0, Math.min(canvasWidth - this.width, this.x));
+      const decel = KNOCKBACK_FRICTION * dt;
+      if (Math.abs(this.knockbackVx) <= decel) this.knockbackVx = 0;
+      else this.knockbackVx -= Math.sign(this.knockbackVx) * decel;
+    }
+
     // 歩行アニメーション用: 地上を実際に移動しているときだけ距離を積算する
     this.isWalking = !isAttacking && !this.isStunned && !this.isJumpSquatting && this.isGrounded && this.vx !== 0;
     if (this.isWalking) {
@@ -268,6 +326,9 @@ export class Player {
     if (this.blockstunTimer > 0) {
       this.blockstunTimer = Math.max(0, this.blockstunTimer - dt);
     }
+    if (this.downTimer > 0) {
+      this.downTimer = Math.max(0, this.downTimer - dt);
+    }
   }
 
   // 状態に応じたオーバーレイ色（画像にも図形にも共通で使う）
@@ -285,12 +346,29 @@ export class Player {
     return null;
   }
 
-  // 攻撃ポーズ絵 > 被弾絵(実際にヒットを食らった瞬間のみ・しゃがみ中は除く) > 立ちガード絵(実際に攻撃を防いだ瞬間のみ・しゃがみ中は除く)
-  // > ジャンプポーズ絵(ため中・空中) > 立ち⇔しゃがみ遷移コマ/しゃがみ絵 > 歩行コマ > 立ち絵 の優先順位で選ぶ
+  // K.O.絵(HPが尽きた瞬間から次のラウンドまでずっと) > ダウン絵(吹き飛び/倒れ) > 攻撃ポーズ絵
+  // > 被弾絵(実際にヒットを食らった瞬間のみ・しゃがみ中は除く)
+  // > 立ちガード絵(実際に攻撃を防いだ瞬間のみ・しゃがみ中は除く) > ジャンプポーズ絵(ため中・空中)
+  // > 立ち⇔しゃがみ遷移コマ/しゃがみ絵 > 歩行コマ > 立ち絵 の優先順位で選ぶ
   // （それぞれ無ければ次点にフォールバック）。ガード構え（後方入力）だけでは切り替わらず、
   // 実際に攻撃を防いだ（ガード硬直中）ときだけガード絵になる。
   // しゃがみ中は被弾絵・ガード絵どちらも専用絵が無いため、従来通りしゃがみ絵を優先する
   getCurrentSprite() {
+    if (this.isKO) {
+      if (this.koSprite) return this.koSprite;
+      // K.O.絵が無ければダウン絵（倒れ→無ければ吹き飛び）→被弾絵の順で代用する
+      const downFallback = this.downLyingSprite || this.downLaunchedSprite;
+      if (downFallback) return downFallback;
+      if (this.hitSprite) return this.hitSprite;
+    } else if (this.isDowned) {
+      const sprite = this.isKnockdownLaunched ? this.downLaunchedSprite : this.downLyingSprite;
+      if (sprite) return sprite;
+      const fallback = this.downLyingSprite || this.downLaunchedSprite;
+      if (fallback) return fallback;
+      // ダウン絵が無ければ被弾絵で代用する（無ければさらに下のフォールバックへ進む）
+      if (this.hitSprite) return this.hitSprite;
+    }
+
     const attackSprite = this.getAttackSprite();
     if (attackSprite) return attackSprite;
 
@@ -400,8 +478,22 @@ export class Player {
   draw(ctx) {
     const offsetX = this.getAttackVisualOffset();
     const sprite = this.getCurrentSprite();
-    if (sprite) this.drawSprite(ctx, sprite, offsetX);
-    else this.drawRect(ctx, offsetX);
+    if (sprite) {
+      let scale = 1;
+      let yOffset = 0;
+      if (sprite === this.downLyingSprite) {
+        scale = DOWN_LYING_SCALE;
+        yOffset = DOWN_LYING_Y_OFFSET; // 画像下部の余白の分、下にずらして浮き上がりを補正する
+      } else if (sprite === this.koSprite) {
+        scale = KO_SCALE;
+      }
+      // K.O.絵は横に長く寝転ぶ構図のため、他のポーズ用の横幅上限(MAX_SPRITE_ASPECT)を適用せず
+      // 実際のアスペクト比のまま表示する（適用すると歪んで見えてしまうため）
+      const maxAspect = sprite === this.koSprite ? Infinity : MAX_SPRITE_ASPECT;
+      this.drawSprite(ctx, sprite, offsetX, scale, maxAspect, yOffset);
+    } else {
+      this.drawRect(ctx, offsetX);
+    }
 
     const hitbox = this.getHitbox();
     if (hitbox) {
@@ -412,6 +504,7 @@ export class Player {
 
   drawRect(ctx, offsetX) {
     if (this.hitFlashTimer > 0) ctx.fillStyle = "#ffffff";
+    else if (this.isKO || this.isDowned) ctx.fillStyle = "#555555"; // K.O./ダウン中はグレーに
     else if (this.guardFlashTimer > 0) ctx.fillStyle = "#66ccff";
     else if (this.hitstunTimer > 0) ctx.fillStyle = "#994444"; // ヒット硬直中（反撃のチャンス）
     else if (this.isGuarding) ctx.fillStyle = "#3a3a5c"; // ガード構え中は少し暗い色に
@@ -430,14 +523,17 @@ export class Player {
   // 表示サイズは常に立ち高さ(STAND_HEIGHT)基準の固定値にし、しゃがみ中でもハートボックスが
   // 縮んだ分だけ画像まで縮小されないようにする（足元の位置だけは実際のハートボックスに合わせる）。
   // 横長すぎる画像（スカーフ等の装飾で横に広がっている場合など）は、他方のキャラと
-  // 見た目のサイズが揃うよう、高さに対する横幅の比率に上限をかける
-  drawSprite(ctx, img, offsetX) {
-    const displayHeight = STAND_HEIGHT;
+  // 見た目のサイズが揃うよう、高さに対する横幅の比率に上限をかける（maxAspectで個別に緩和・無効化できる）。
+  // scale: 特定のポーズ絵だけ基準サイズより拡大したい場合の倍率（例: ダウンの倒れポーズ）。
+  // yOffset: 画像内の余白などで足元アンカーとキャラの実際の接地点がずれる場合に、
+  // 表示位置だけを下（正の値）にずらして補正する（当たり判定には影響しない）
+  drawSprite(ctx, img, offsetX, scale = 1, maxAspect = MAX_SPRITE_ASPECT, yOffset = 0) {
+    const displayHeight = STAND_HEIGHT * scale;
     const rawAspect = img.naturalWidth / img.naturalHeight;
-    const aspect = Math.min(rawAspect, MAX_SPRITE_ASPECT);
+    const aspect = Math.min(rawAspect, maxAspect);
     const displayWidth = displayHeight * aspect;
     const centerX = this.x + offsetX + this.width / 2;
-    const feetY = this.y + this.height;
+    const feetY = this.y + this.height + yOffset;
 
     ctx.save();
     ctx.translate(centerX, feetY);

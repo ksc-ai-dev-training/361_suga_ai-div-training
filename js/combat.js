@@ -8,6 +8,11 @@ export const GUARD_CHIP_RATIO = 0.1;
 // SUPERゲージの増加量 = ダメージ量 × この係数。攻撃側・防御側の両方に加算される（仮値）
 export const SUPER_GAUGE_GAIN_RATE = 0.03;
 
+// ヒットストップ（ヒット瞬間、両者の動きを一瞬止める演出）の長さ（仮値）。
+// 技の強さによらず一律固定。ガード成功時は通常ヒットより短い
+export const HITSTOP_HIT_DURATION = 0.08; // 秒
+export const HITSTOP_BLOCK_DURATION = 0.04; // 秒
+
 // 技データ（startup=発生, active=持続フレーム数, recovery=硬直, damage=与えるダメージ量,
 //           hitstun=ヒット時に相手が動けなくなるフレーム数, blockstun=ガード時に相手が動けなくなるフレーム数）
 // 発生・持続・硬直・ダメージ・硬直差は参考にしたフレームデータ表の「立ち技」の値と一致させている。
@@ -38,7 +43,7 @@ export const CROUCH_PUNCH_DATA = {
 export const CROUCH_KICK_DATA = {
   light: { startup: framesToSeconds(5), active: framesToSeconds(2), recovery: framesToSeconds(10), range: 55, height: 40, offsetY: 150, damage: 200, hitstun: framesToSeconds(13), blockstun: framesToSeconds(9) },
   medium: { startup: framesToSeconds(8), active: framesToSeconds(3), recovery: framesToSeconds(19), range: 70, height: 50, offsetY: 140, damage: 500, hitstun: framesToSeconds(20), blockstun: framesToSeconds(13) },
-  heavy: { startup: framesToSeconds(9), active: framesToSeconds(3), recovery: framesToSeconds(23), range: 85, height: 60, offsetY: 130, damage: 900, hitstun: framesToSeconds(45), blockstun: framesToSeconds(11) }, // 本来はヒット時ダウン(D)効果があるが未実装。hitstunは仮の代替値
+  heavy: { startup: framesToSeconds(9), active: framesToSeconds(3), recovery: framesToSeconds(23), range: 85, height: 60, offsetY: 130, damage: 900, hitstun: framesToSeconds(45), blockstun: framesToSeconds(11), causesKnockdown: true }, // ヒット時ダウン(D)効果を実装済み。causesKnockdown成立時はhitstunの代わりにapplyKnockdown()が使われるため、hitstunの値自体は実質未使用（ガード時は従来通りblockstunが使われる）
 };
 
 // 必殺技。isProjectile:true の場合、本体には打撃判定を持たせず、
@@ -56,7 +61,7 @@ export const SPECIAL_DATA = {
     isProjectile: true,
     projectile: { speed: 600, width: 40, height: 30, damage: 1000, offsetY: 90, color: "#33ccff", hitstun: framesToSeconds(25), blockstun: framesToSeconds(14) },
   },
-  // スーパーアーツ（↓↘→↓↘→+パンチ）。通常の波動拳より高威力・大型・高速
+  // スーパーアーツ（↓↘→↓→+パンチ）。通常の波動拳より高威力・大型・高速
   hadoukenSuper: {
     startup: framesToSeconds(18),
     active: 0.06,

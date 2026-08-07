@@ -99,6 +99,9 @@ async function loadJumpSprites(prefix) {
 // - assets/hadoukenN.png（N=1,2,3...連番） : 波動拳の弾本体の見た目（P1/P2共通、右向き基準）。
 //   複数コマ用意すると一定間隔で切り替わり発光が揺らめいて見える。無ければ従来通り円形の図形で描画する
 // - assets/title_logo.png : タイトル画面のロゴ（透過PNG推奨）。無ければテキストのロゴ名で代用する
+// - assets/player1_down_launched.png : ダウン絵（吹き飛び中）。無ければ通常のヒット反応で代用する
+// - assets/player1_down_lying.png    : ダウン絵（倒れている間）。無ければ通常のヒット反応で代用する
+// - assets/player1_ko.png : K.O.絵（HPが0になった瞬間から次のラウンド開始まで表示され続ける）。無ければダウン絵/通常のポーズで代用する
 export async function loadAssets() {
   const [
     background,
@@ -120,6 +123,12 @@ export async function loadAssets() {
     player2Attacks,
     hadoukenSprites,
     titleLogo,
+    player1DownLaunched,
+    player2DownLaunched,
+    player1DownLying,
+    player2DownLying,
+    player1Ko,
+    player2Ko,
   ] = await Promise.all([
     loadImage("assets/background.png"),
     loadImage("assets/player1.png"),
@@ -140,6 +149,12 @@ export async function loadAssets() {
     loadAttackSprites("player2"),
     loadNumberedFrames("hadouken", MAX_HADOUKEN_FRAMES),
     loadImage("assets/title_logo.png"),
+    loadImage("assets/player1_down_launched.png"),
+    loadImage("assets/player2_down_launched.png"),
+    loadImage("assets/player1_down_lying.png"),
+    loadImage("assets/player2_down_lying.png"),
+    loadImage("assets/player1_ko.png"),
+    loadImage("assets/player2_ko.png"),
   ]);
   return {
     background,
@@ -160,6 +175,12 @@ export async function loadAssets() {
     player1Attacks,
     player2Attacks,
     hadoukenSprites,
+    player1DownLaunched,
+    player2DownLaunched,
+    player1DownLying,
+    player2DownLying,
+    player1Ko,
+    player2Ko,
     titleLogo,
   };
 }

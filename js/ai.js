@@ -183,7 +183,8 @@ export class CpuController {
       this.player.vx = 0; // ガード中は動かない
     }
     // ヒット硬直中は新たにガードへ入れないが、ガード硬直中は継続してガードできる
-    this.player.isGuarding = this.guardTimer > 0 && this.player.isGrounded && !this.player.attack && this.player.hitstunTimer <= 0;
+    this.player.isGuarding =
+      this.guardTimer > 0 && this.player.isGrounded && !this.player.attack && this.player.hitstunTimer <= 0 && this.player.downTimer <= 0;
   }
 
   // --- 4. 割り込み反応（相手の攻撃発生・飛び込みを検知し、モードの「意識」に応じて反応する） ---

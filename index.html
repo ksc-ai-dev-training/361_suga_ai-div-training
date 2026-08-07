@@ -6,7 +6,33 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <canvas id="gameCanvas" width="1200" height="600"></canvas>
+  <div id="gameContainer">
+    <canvas id="gameCanvas" width="1200" height="600"></canvas>
+
+    <!-- オンライン対戦（簡易版）の接続パネル。canvas上には文字入力欄を置けないため、
+         通常のHTML要素として重ねて表示し、game.introPhase === "onlineLobby" の間だけ表示する（main.js側で制御） -->
+    <div id="onlinePanel" class="hidden">
+      <div id="onlineChoice">
+        <button id="onlineHostBtn" type="button">部屋を作る（ホスト）</button>
+        <button id="onlineJoinBtn" type="button">部屋に参加する</button>
+        <button id="onlineBackBtn" type="button" class="onlineBackBtn">戻る</button>
+      </div>
+
+      <div id="onlineHostPanel" class="hidden">
+        <p>この合言葉を相手に伝えてください：</p>
+        <p id="onlineHostCode" class="onlineCode">----</p>
+        <p id="onlineHostStatus" class="onlineStatus">部屋を作成中...</p>
+      </div>
+
+      <div id="onlineJoinPanel" class="hidden">
+        <p>相手から伝えられた合言葉を入力してください：</p>
+        <input id="onlineJoinInput" type="text" maxlength="8" autocomplete="off" placeholder="例: AB12">
+        <button id="onlineJoinSubmitBtn" type="button">参加する</button>
+        <p id="onlineJoinStatus" class="onlineStatus"></p>
+      </div>
+    </div>
+  </div>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
